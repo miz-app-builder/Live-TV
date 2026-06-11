@@ -384,18 +384,14 @@ app.get('/channels', async (req, res) => {
   }));
   const filtered = user
     ? withLogos
-    : withLogos.map(ch => guestBlockedChannels.has(ch.id)
-        ? { ...ch, stream_url: null, locked: true }
-        : ch);
+    : withLogos.filter(ch => !guestBlockedChannels.has(ch.id));
   const groupMap = new Map();
   filtered.forEach(ch => {
     const key = ch.channel_name.toLowerCase().trim();
     if (!groupMap.has(key)) {
       groupMap.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
     } else {
-      const grp = groupMap.get(key);
-      grp.servers.push({ id: ch.id, url: ch.stream_url });
-      if (!ch.locked) grp.locked = false;
+      groupMap.get(key).servers.push({ id: ch.id, url: ch.stream_url });
     }
   });
   res.json({ channels: Array.from(groupMap.values()), isGuest: !user });
@@ -2108,23 +2104,9 @@ app.get('/', (req, res) => {
       border-radius: 10px; padding: 14px 10px 12px;
       display: flex; flex-direction: column; align-items: center; gap: 10px;
       cursor: pointer; transition: border-color .15s, background .15s, transform .1s;
-      text-align: center; position: relative;
+      text-align: center;
     }
     .grid-card:hover { background: #1c1c1c; border-color: #e00; transform: translateY(-2px); }
-    .grid-card.locked { border-color: #2a2200; background: #0e0d00; }
-    .grid-card.locked:hover { border-color: #ffd700; background: #181200; transform: translateY(-2px); box-shadow: 0 4px 18px rgba(255,215,0,.1); }
-    .premium-badge { display:inline-block; background:linear-gradient(90deg,#ffd700,#ffaa00); color:#111; font-size:8px; font-weight:900; letter-spacing:.5px; border-radius:4px; padding:2px 6px; line-height:1.5; }
-    .lock-pin { position:absolute; top:7px; right:8px; font-size:11px; opacity:.6; }
-    .grid-name.dim { color:#666; }
-    .premium-modal-wrap { display:none; position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:9500; align-items:center; justify-content:center; }
-    .premium-modal-wrap.show { display:flex; }
-    .premium-modal { background:#141414; border:1px solid #2d2400; border-radius:18px; padding:36px 28px 24px; max-width:360px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.7); }
-    .pm-icon { font-size:48px; margin-bottom:10px; display:block; }
-    .pm-title { font-size:20px; font-weight:800; color:#ffd700; margin-bottom:6px; }
-    .pm-chname { font-size:13px; color:#888; margin-bottom:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .pm-desc { color:#555; font-size:13px; line-height:1.7; margin-bottom:22px; }
-    .pm-close { background:none; border:none; color:#444; font-size:12px; cursor:pointer; margin-top:12px; display:block; width:100%; }
-    .pm-close:hover { color:#888; }
     .grid-logo {
       width: 52px; height: 52px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -2345,11 +2327,6 @@ app.get('/', (req, res) => {
       tryNext();
     }
 
-    function showPremiumModal(name) {
-      document.getElementById('pm-ch-name').textContent = name;
-      document.getElementById('premium-overlay').classList.add('show');
-    }
-
     function renderGrid(list) {
       gridChannels.innerHTML = '';
       if (!list.length) {
@@ -2363,9 +2340,8 @@ app.get('/', (req, res) => {
       gridCount.textContent = list.length + ' channels';
       const frag = document.createDocumentFragment();
       list.forEach(ch => {
-        const isLocked = !!ch.locked;
         const card = document.createElement('div');
-        card.className = 'grid-card' + (isLocked ? ' locked' : '');
+        card.className = 'grid-card';
         const fallback = document.createElement('div');
         fallback.className = 'grid-logo';
         fallback.style.background = logoColor(ch.channel_name);
@@ -2377,22 +2353,12 @@ app.get('/', (req, res) => {
         card.appendChild(fallback);
         attachLogo(img, fallback, ch);
         const nameEl = document.createElement('div');
-        nameEl.className = 'grid-name' + (isLocked ? ' dim' : '');
+        nameEl.className = 'grid-name';
         nameEl.textContent = ch.channel_name;
         card.appendChild(nameEl);
-        if (isLocked) {
-          const pin = document.createElement('span');
-          pin.className = 'lock-pin';
-          pin.textContent = '🔒';
-          card.appendChild(pin);
-          const badge = document.createElement('div');
-          badge.className = 'premium-badge';
-          badge.textContent = '🔒 PREMIUM';
-          card.appendChild(badge);
-          card.addEventListener('click', () => showPremiumModal(ch.channel_name));
-        } else {
-          card.addEventListener('click', () => { window.location.href = '/watch?ch=' + ch.id; });
-        }
+        card.addEventListener('click', () => {
+          window.location.href = '/watch?ch=' + ch.id;
+        });
         frag.appendChild(card);
       });
       gridChannels.appendChild(frag);
@@ -2490,14 +2456,11 @@ app.get('/', (req, res) => {
       grid.innerHTML = '';
       const frag = document.createDocumentFragment();
       liveChannels.forEach(ch => {
-        const isLocked = !!ch.locked;
         const card = document.createElement('div');
-        card.className = 'live-card' + (isLocked ? ' locked' : '');
+        card.className = 'live-card';
         const badge = document.createElement('div');
         badge.className = 'live-card-badge';
-        badge.style.background = isLocked ? 'linear-gradient(90deg,#ffd700,#ffaa00)' : '#e00';
-        badge.style.color = isLocked ? '#111' : '#fff';
-        badge.textContent = isLocked ? '🔒' : 'LIVE';
+        badge.textContent = 'LIVE';
         const fallback = document.createElement('div');
         fallback.className = 'grid-logo';
         fallback.style.background = logoColor(ch.channel_name);
@@ -2506,14 +2469,14 @@ app.get('/', (req, res) => {
         img.className = 'grid-logo-img';
         img.alt = ch.channel_name;
         const nameEl = document.createElement('div');
-        nameEl.className = 'grid-name' + (isLocked ? ' dim' : '');
+        nameEl.className = 'grid-name';
         nameEl.textContent = ch.channel_name;
         card.appendChild(badge);
         card.appendChild(img);
         card.appendChild(fallback);
         card.appendChild(nameEl);
         attachLogo(img, fallback, ch);
-        card.addEventListener('click', () => isLocked ? showPremiumModal(ch.channel_name) : window.location.href = '/watch?ch=' + ch.id);
+        card.addEventListener('click', () => { window.location.href = '/watch?ch=' + ch.id; });
         frag.appendChild(card);
       });
       grid.appendChild(frag);
@@ -2606,21 +2569,6 @@ app.get('/', (req, res) => {
         <a href="/login" class="g-btn g-login">🔑 Login</a>
         <a href="/signup" class="g-btn g-signup">📝 Sign Up</a>
       </div>
-    </div>
-  </div>
-
-  <!-- Premium channel modal -->
-  <div class="premium-modal-wrap" id="premium-overlay">
-    <div class="premium-modal">
-      <span class="pm-icon">🔒</span>
-      <div class="pm-title">Premium Channel</div>
-      <div class="pm-chname" id="pm-ch-name"></div>
-      <p>এই channel দেখতে account দরকার।<br>Sign up করুন — সম্পূর্ণ বিনামূল্যে!</p>
-      <div class="g-btns">
-        <a href="/signup" class="g-btn g-login">🚀 Sign Up Free</a>
-        <a href="/login" class="g-btn g-signup">🔑 Login</a>
-      </div>
-      <button class="pm-close" onclick="document.getElementById('premium-overlay').classList.remove('show')">✕ বন্ধ করুন</button>
     </div>
   </div>
 
@@ -3082,25 +3030,6 @@ app.get('/private-watch', (req, res) => {
     }
     .player-wrapper:fullscreen, .player-wrapper:-webkit-full-screen { border-radius: 0; max-width: 100%; }
     video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; }
-    .top-overlay {
-      position: absolute; top: 0; left: 0; right: 0; padding: 12px 14px;
-      display: flex; align-items: center; justify-content: space-between;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
-      z-index: 10; opacity: 0; transition: opacity 0.3s; pointer-events: none;
-    }
-    .player-wrapper:hover .top-overlay,
-    .player-wrapper.controls-visible .top-overlay { opacity: 1; pointer-events: auto; }
-    .live-badge {
-      background: #e00; color: #fff; font-size: 11px; font-weight: 700;
-      letter-spacing: 2px; text-transform: uppercase; padding: 3px 9px;
-      border-radius: 4px; display: flex; align-items: center; gap: 5px;
-    }
-    .live-dot { width: 7px; height: 7px; background: #fff; border-radius: 50%; animation: pulse 1.2s ease-in-out infinite; }
-    .channel-label {
-      background: rgba(0,0,0,0.55); color: #ddd; font-size: 12px; font-weight: 600;
-      padding: 3px 10px; border-radius: 4px;
-      max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
     .center-icon {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
       width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,0.55);
@@ -3260,10 +3189,6 @@ app.get('/private-watch', (req, res) => {
   </header>
 
   <div class="player-wrapper" id="player-wrapper">
-    <div class="top-overlay">
-      <div class="live-badge"><span class="live-dot"></span>LIVE</div>
-      <div class="channel-label" id="channel-label">Loading...</div>
-    </div>
     <video id="video" autoplay muted playsinline autopictureinpicture></video>
     <div class="center-icon" id="center-icon">
       <svg id="center-svg" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -3907,34 +3832,6 @@ app.get('/watch', (req, res) => {
       aspect-ratio: 16/9;
     }
 
-    /* Top overlay */
-    .top-overlay {
-      position: absolute; top: 0; left: 0; right: 0;
-      padding: 12px 14px;
-      display: flex; align-items: center; justify-content: space-between;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
-      z-index: 10;
-      opacity: 0; transition: opacity 0.3s;
-      pointer-events: none;
-    }
-    .player-wrapper:hover .top-overlay,
-    .player-wrapper.controls-visible .top-overlay { opacity: 1; pointer-events: auto; }
-    .live-badge {
-      background: #e00; color: #fff;
-      font-size: 11px; font-weight: 700; letter-spacing: 2px;
-      text-transform: uppercase; padding: 3px 9px; border-radius: 4px;
-      display: flex; align-items: center; gap: 5px;
-    }
-    .live-dot {
-      width: 7px; height: 7px; background: #fff; border-radius: 50%;
-      animation: pulse 1.2s ease-in-out infinite;
-    }
-    .channel-label {
-      background: rgba(0,0,0,0.55); color: #ddd;
-      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px;
-      max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-
     /* Center play/pause ripple */
     .center-icon {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
@@ -4259,11 +4156,6 @@ app.get('/watch', (req, res) => {
 
   <div class="player-wrapper" id="player-wrapper">
     <!-- Top overlay -->
-    <div class="top-overlay">
-      <div class="live-badge"><span class="live-dot"></span>LIVE</div>
-      <div class="channel-label" id="channel-label">Loading...</div>
-    </div>
-
     <!-- Video -->
     <video id="video" autoplay muted playsinline autopictureinpicture></video>
 
