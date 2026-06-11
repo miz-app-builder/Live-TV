@@ -3424,8 +3424,8 @@ app.get('/private-watch', (req, res) => {
       }, 3000);
     }
     playerWrap.addEventListener('mousemove', showControls);
-    playerWrap.addEventListener('touchstart', showControls);
-    playerWrap.addEventListener('touchmove', showControls);
+    playerWrap.addEventListener('touchstart', showControls, { passive: true });
+    playerWrap.addEventListener('touchmove', showControls, { passive: true });
 
     function updatePlayIcon() {
       playIcon.querySelector('path').setAttribute('d', video.paused ? SVG.play : SVG.pause);
@@ -3437,14 +3437,20 @@ app.get('/private-watch', (req, res) => {
     }
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashCenter(video.paused);
       if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
     });
     video.addEventListener('play',  () => { updatePlayIcon(); showControls(); });
     video.addEventListener('pause', () => { updatePlayIcon(); playerWrap.classList.add('controls-visible'); });
     playerWrap.addEventListener('click', (e) => {
       if (e.target === playerWrap || e.target === video) {
-        flashCenter(video.paused);
-        if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
+        if (playerWrap.classList.contains('controls-visible')) {
+          clearTimeout(hideTimer);
+          playerWrap.classList.remove('controls-visible');
+          playerWrap.classList.add('controls-hidden');
+        } else {
+          showControls();
+        }
       }
     });
 
@@ -4385,8 +4391,8 @@ app.get('/watch', (req, res) => {
       }, 3000);
     }
     playerWrap.addEventListener('mousemove', showControls);
-    playerWrap.addEventListener('touchstart', showControls);
-    playerWrap.addEventListener('touchmove', showControls);
+    playerWrap.addEventListener('touchstart', showControls, { passive: true });
+    playerWrap.addEventListener('touchmove', showControls, { passive: true });
 
     /* ── Play / Pause ────────────────────────── */
     function updatePlayIcon() {
@@ -4399,14 +4405,20 @@ app.get('/watch', (req, res) => {
     }
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashCenter(video.paused);
       if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
     });
     video.addEventListener('play',  () => { updatePlayIcon(); showControls(); });
     video.addEventListener('pause', () => { updatePlayIcon(); playerWrap.classList.add('controls-visible'); });
     playerWrap.addEventListener('click', (e) => {
       if (e.target === playerWrap || e.target === video) {
-        flashCenter(video.paused);
-        if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
+        if (playerWrap.classList.contains('controls-visible')) {
+          clearTimeout(hideTimer);
+          playerWrap.classList.remove('controls-visible');
+          playerWrap.classList.add('controls-hidden');
+        } else {
+          showControls();
+        }
       }
     });
 
