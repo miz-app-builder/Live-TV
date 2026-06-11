@@ -11,9 +11,12 @@ A Live HLS Streaming Web App built with Node.js + Express. Channels are stored i
 
 ## User Preferences
 
-- After every task is complete, push all changes to the GitHub repo using the `GITHUB_TOKEN` secret:
+- After every task is complete, push all changes to the GitHub repo so Railway auto-deploys the update.
+- Git push must be done via a **Project Task** (Replit restricts direct git operations from the main agent).
+- The push command to use inside the Project Task:
   ```bash
+  git remote set-url origin https://$GITHUB_TOKEN@github.com/miz-app-builder/Live-TV.git 2>/dev/null || git remote add origin https://$GITHUB_TOKEN@github.com/miz-app-builder/Live-TV.git
   git add -A
-  git commit -m "<short description of what changed>"
-  git push https://$GITHUB_TOKEN@github.com/miz-app-builder/Live-TV.git main
+  git commit -m "<short description of what changed>" || true
+  git push origin main
   ```
