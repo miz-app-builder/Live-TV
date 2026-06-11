@@ -3295,7 +3295,6 @@ app.get('/private-watch', (req, res) => {
     const errorMsg     = document.getElementById('error-msg');
     const errorDetail  = document.getElementById('error-detail');
     const loadingMsg   = document.getElementById('loading-msg');
-    const channelLabel = document.getElementById('channel-label');
     const channelList  = document.getElementById('channel-list');
     const searchInput  = document.getElementById('search');
     const chCount      = document.getElementById('ch-count');
@@ -3660,7 +3659,6 @@ app.get('/private-watch', (req, res) => {
     }
 
     function playStream(channel) {
-      channelLabel.textContent = channel.name;
       activeId = channel.id;
       document.querySelectorAll('.channel-item').forEach(el => {
         el.classList.toggle('active', parseInt(el.dataset.id) === channel.id);
@@ -4256,7 +4254,6 @@ app.get('/watch', (req, res) => {
     const errorMsg     = document.getElementById('error-msg');
     const errorDetail  = document.getElementById('error-detail');
     const loadingMsg   = document.getElementById('loading-msg');
-    const channelLabel = document.getElementById('channel-label');
     const channelList  = document.getElementById('channel-list');
     const searchInput  = document.getElementById('search');
     const chCount      = document.getElementById('ch-count');
@@ -4686,7 +4683,6 @@ app.get('/watch', (req, res) => {
 
     /* ── playStream ──────────────────────────── */
     function playStream(channel) {
-      channelLabel.textContent = channel.channel_name;
       activeId = channel.id;
       document.querySelectorAll('.channel-item').forEach(el => {
         el.classList.toggle('active', parseInt(el.dataset.id) === channel.id);
