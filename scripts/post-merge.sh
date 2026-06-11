@@ -11,7 +11,7 @@ if [ -n "$GITHUB_TOKEN" ]; then
   git config user.name "Replit Agent"
   git add -A
   git commit -m "Auto-push: $(date -u '+%Y-%m-%d %H:%M UTC')" || true
-  git push origin main
+  git push --force origin main
 else
   echo "GITHUB_TOKEN not set — skipping GitHub push"
 fi
