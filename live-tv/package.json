@@ -1,0 +1,19 @@
+{
+  "name": "live-streaming-app",
+  "version": "1.0.0",
+  "description": "Live HLS Streaming Web App MVP",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
+    "cors": "^2.8.6",
+    "express": "^4.22.2",
+    "jsonwebtoken": "^9.0.3",
+    "ws": "^8.21.0"
+  }
+}
