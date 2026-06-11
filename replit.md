@@ -9,14 +9,18 @@ A Live HLS Streaming Web App built with Node.js + Express. Channels are stored i
 - **Auth:** Supabase Auth with JWT verification
 - **GitHub Repo:** https://github.com/miz-app-builder/Live-TV
 
+## Automatic GitHub Push (Post-Merge)
+
+After every task merge, `scripts/post-merge.sh` automatically:
+1. Runs `npm install`
+2. Copies `server.js` → `live-tv/server.js`
+3. Commits any staged changes and pushes to `main` on GitHub
+
+This triggers Railway to auto-deploy — no separate push task is needed.
+
+**Required secret:** `GITHUB_TOKEN` must be set as a Replit environment secret with push access to `miz-app-builder/Live-TV`.
+
 ## User Preferences
 
-- After every task is complete, push all changes to the GitHub repo so Railway auto-deploys the update.
-- Git push must be done via a **Project Task** (Replit restricts direct git operations from the main agent).
-- The push command to use inside the Project Task:
-  ```bash
-  git remote set-url origin https://$GITHUB_TOKEN@github.com/miz-app-builder/Live-TV.git 2>/dev/null || git remote add origin https://$GITHUB_TOKEN@github.com/miz-app-builder/Live-TV.git
-  git add -A
-  git commit -m "<short description of what changed>" || true
-  git push origin main
-  ```
+- After every task is complete, changes are automatically pushed to GitHub via `scripts/post-merge.sh` so Railway auto-deploys.
+- No manual push task is needed — the post-merge hook handles it.

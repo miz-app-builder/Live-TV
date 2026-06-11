@@ -10,8 +10,10 @@ if [ -n "$GITHUB_TOKEN" ]; then
   git config user.email "replit-agent@users.noreply.github.com"
   git config user.name "Replit Agent"
   git add -A
-  git commit -m "Auto-push: $(date -u '+%Y-%m-%d %H:%M UTC')" || true
-  git push --force origin main
+  git diff --cached --quiet && echo "Nothing to commit, skipping push" && exit 0
+  git commit -m "Auto-push: $(date -u '+%Y-%m-%d %H:%M UTC')"
+  git pull --rebase origin main
+  git push origin main
 else
   echo "GITHUB_TOKEN not set — skipping GitHub push"
 fi
