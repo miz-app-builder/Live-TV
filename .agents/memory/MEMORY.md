@@ -1,0 +1,1 @@
+- [Supabase vs Replit DB](supabase-vs-replit-db.md) — DATABASE_URL/pg goes to Replit's internal DB (heliumdb), NOT Supabase. Always use supabaseAdmin for app data.
