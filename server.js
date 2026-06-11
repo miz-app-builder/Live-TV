@@ -3082,25 +3082,6 @@ app.get('/private-watch', (req, res) => {
     }
     .player-wrapper:fullscreen, .player-wrapper:-webkit-full-screen { border-radius: 0; max-width: 100%; }
     video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; }
-    .top-overlay {
-      position: absolute; top: 0; left: 0; right: 0; padding: 12px 14px;
-      display: flex; align-items: center; justify-content: space-between;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
-      z-index: 10; opacity: 0; transition: opacity 0.3s; pointer-events: none;
-    }
-    .player-wrapper:hover .top-overlay,
-    .player-wrapper.controls-visible .top-overlay { opacity: 1; pointer-events: auto; }
-    .live-badge {
-      background: #e00; color: #fff; font-size: 11px; font-weight: 700;
-      letter-spacing: 2px; text-transform: uppercase; padding: 3px 9px;
-      border-radius: 4px; display: flex; align-items: center; gap: 5px;
-    }
-    .live-dot { width: 7px; height: 7px; background: #fff; border-radius: 50%; animation: pulse 1.2s ease-in-out infinite; }
-    .channel-label {
-      background: rgba(0,0,0,0.55); color: #ddd; font-size: 12px; font-weight: 600;
-      padding: 3px 10px; border-radius: 4px;
-      max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
     .center-icon {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
       width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,0.55);
@@ -3260,10 +3241,6 @@ app.get('/private-watch', (req, res) => {
   </header>
 
   <div class="player-wrapper" id="player-wrapper">
-    <div class="top-overlay">
-      <div class="live-badge"><span class="live-dot"></span>LIVE</div>
-      <div class="channel-label" id="channel-label">Loading...</div>
-    </div>
     <video id="video" autoplay muted playsinline autopictureinpicture></video>
     <div class="center-icon" id="center-icon">
       <svg id="center-svg" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -3907,34 +3884,6 @@ app.get('/watch', (req, res) => {
       aspect-ratio: 16/9;
     }
 
-    /* Top overlay */
-    .top-overlay {
-      position: absolute; top: 0; left: 0; right: 0;
-      padding: 12px 14px;
-      display: flex; align-items: center; justify-content: space-between;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
-      z-index: 10;
-      opacity: 0; transition: opacity 0.3s;
-      pointer-events: none;
-    }
-    .player-wrapper:hover .top-overlay,
-    .player-wrapper.controls-visible .top-overlay { opacity: 1; pointer-events: auto; }
-    .live-badge {
-      background: #e00; color: #fff;
-      font-size: 11px; font-weight: 700; letter-spacing: 2px;
-      text-transform: uppercase; padding: 3px 9px; border-radius: 4px;
-      display: flex; align-items: center; gap: 5px;
-    }
-    .live-dot {
-      width: 7px; height: 7px; background: #fff; border-radius: 50%;
-      animation: pulse 1.2s ease-in-out infinite;
-    }
-    .channel-label {
-      background: rgba(0,0,0,0.55); color: #ddd;
-      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px;
-      max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-
     /* Center play/pause ripple */
     .center-icon {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
@@ -4258,12 +4207,6 @@ app.get('/watch', (req, res) => {
   </header>
 
   <div class="player-wrapper" id="player-wrapper">
-    <!-- Top overlay -->
-    <div class="top-overlay">
-      <div class="live-badge"><span class="live-dot"></span>LIVE</div>
-      <div class="channel-label" id="channel-label">Loading...</div>
-    </div>
-
     <!-- Video -->
     <video id="video" autoplay muted playsinline autopictureinpicture></video>
 
