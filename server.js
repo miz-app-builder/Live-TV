@@ -3094,8 +3094,9 @@ app.get('/private-watch', (req, res) => {
       border-radius: 20px; pointer-events: none;
       display: flex; align-items: center; gap: 5px;
       backdrop-filter: blur(4px); z-index: 20;
-      transition: opacity 0.3s;
+      opacity: 0; transition: opacity 0.3s;
     }
+    .player-wrapper.controls-visible .viewer-badge { opacity: 1; }
     .progress-row { display: flex; align-items: center; gap: 8px; }
     .live-line { flex: 1; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; position: relative; overflow: hidden; }
     .live-line-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #e00; border-radius: 2px; animation: live-pulse 2s ease-in-out infinite; }
@@ -3943,8 +3944,9 @@ app.get('/watch', (req, res) => {
       border-radius: 20px; pointer-events: none;
       display: flex; align-items: center; gap: 5px;
       backdrop-filter: blur(4px); z-index: 20;
-      transition: opacity 0.3s;
+      opacity: 0; transition: opacity 0.3s;
     }
+    .player-wrapper.controls-visible .viewer-badge { opacity: 1; }
 
     /* Progress / live bar */
     .progress-row {
