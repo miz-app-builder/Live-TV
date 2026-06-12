@@ -3088,7 +3088,7 @@ app.get('/private-watch', (req, res) => {
     .player-wrapper.controls-visible .controls-bar { opacity: 1; pointer-events: auto; }
     .player-wrapper.controls-hidden * { cursor: none; }
     .viewer-badge {
-      position: absolute; bottom: 56px; right: 12px;
+      position: absolute; top: 12px; right: 12px;
       background: rgba(0,0,0,0.65); color: #fff;
       font-size: 12px; font-weight: 600; padding: 4px 9px;
       border-radius: 20px; pointer-events: none;
@@ -3938,7 +3938,7 @@ app.get('/watch', (req, res) => {
     .player-wrapper.controls-visible .controls-bar { opacity: 1; pointer-events: auto; }
     .player-wrapper.controls-hidden * { cursor: none; }
     .viewer-badge {
-      position: absolute; bottom: 56px; right: 12px;
+      position: absolute; top: 12px; right: 12px;
       background: rgba(0,0,0,0.65); color: #fff;
       font-size: 12px; font-weight: 600; padding: 4px 9px;
       border-radius: 20px; pointer-events: none;
