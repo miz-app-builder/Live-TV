@@ -45,6 +45,15 @@ let appConfig = { guest_limit_minutes: '5' };
 const channelViews = new Map();
 const activeUsers = new Map();
 const ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
+const channelViewers = new Map(); // chId → Map(viewerKey → lastSeenMs)
+const VIEWER_TIMEOUT_MS = 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  channelViewers.forEach((viewers, chId) => {
+    viewers.forEach((ts, key) => { if (now - ts > VIEWER_TIMEOUT_MS) viewers.delete(key); });
+    if (viewers.size === 0) channelViewers.delete(chId);
+  });
+}, 30000);
 
 async function loadAppConfig() {
   try {
@@ -495,6 +504,38 @@ app.post('/api/track/view', (req, res) => {
   const { ch } = req.body;
   if (ch && typeof ch === 'number') channelViews.set(ch, (channelViews.get(ch) || 0) + 1);
   res.json({ ok: true });
+});
+
+/* ── Viewer heartbeat (auth or guest by IP) ─────────────── */
+app.post('/api/track/heartbeat', async (req, res) => {
+  const { ch } = req.body;
+  if (!ch || typeof ch !== 'number') return res.json({ ok: false });
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  let viewerKey;
+  if (token) {
+    const user = await verifyUser(req);
+    viewerKey = user ? 'u:' + user.id : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress);
+  } else {
+    viewerKey = 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress);
+  }
+  if (!channelViewers.has(ch)) channelViewers.set(ch, new Map());
+  channelViewers.get(ch).set(viewerKey, Date.now());
+  res.json({ ok: true });
+});
+
+/* ── Admin: live viewer count for a channel ─────────────── */
+app.get('/api/admin/viewers/:chId', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const role = await getUserRole(user.id);
+  if (role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const chId = parseInt(req.params.chId);
+  if (isNaN(chId)) return res.status(400).json({ error: 'Invalid channel id' });
+  const viewers = channelViewers.get(chId);
+  const now = Date.now();
+  let count = 0;
+  if (viewers) viewers.forEach((ts) => { if (now - ts <= VIEWER_TIMEOUT_MS) count++; });
+  res.json({ count });
 });
 
 /* ── Public config ──────────────────────────────────────── */
@@ -3046,6 +3087,15 @@ app.get('/private-watch', (req, res) => {
     }
     .player-wrapper.controls-visible .controls-bar { opacity: 1; pointer-events: auto; }
     .player-wrapper.controls-hidden * { cursor: none; }
+    .viewer-badge {
+      position: absolute; bottom: 56px; right: 12px;
+      background: rgba(0,0,0,0.65); color: #fff;
+      font-size: 12px; font-weight: 600; padding: 4px 9px;
+      border-radius: 20px; pointer-events: none;
+      display: flex; align-items: center; gap: 5px;
+      backdrop-filter: blur(4px); z-index: 20;
+      transition: opacity 0.3s;
+    }
     .progress-row { display: flex; align-items: center; gap: 8px; }
     .live-line { flex: 1; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; position: relative; overflow: hidden; }
     .live-line-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #e00; border-radius: 2px; animation: live-pulse 2s ease-in-out infinite; }
@@ -3231,6 +3281,7 @@ app.get('/private-watch', (req, res) => {
       <div class="spinner"></div>
       <span style="color:#777;font-size:12px;">Loading stream...</span>
     </div>
+    <div class="viewer-badge" id="viewer-badge" style="display:none">👁 <span id="viewer-count">—</span></div>
     <div id="error-msg">
       <span class="icon">📡</span>
       <strong>Stream Unavailable</strong>
@@ -3424,8 +3475,8 @@ app.get('/private-watch', (req, res) => {
       }, 3000);
     }
     playerWrap.addEventListener('mousemove', showControls);
-    playerWrap.addEventListener('touchstart', showControls);
-    playerWrap.addEventListener('touchmove', showControls);
+    playerWrap.addEventListener('touchstart', showControls, { passive: true });
+    playerWrap.addEventListener('touchmove', showControls, { passive: true });
 
     function updatePlayIcon() {
       playIcon.querySelector('path').setAttribute('d', video.paused ? SVG.play : SVG.pause);
@@ -3437,14 +3488,20 @@ app.get('/private-watch', (req, res) => {
     }
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashCenter(video.paused);
       if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
     });
     video.addEventListener('play',  () => { updatePlayIcon(); showControls(); });
     video.addEventListener('pause', () => { updatePlayIcon(); playerWrap.classList.add('controls-visible'); });
     playerWrap.addEventListener('click', (e) => {
       if (e.target === playerWrap || e.target === video) {
-        flashCenter(video.paused);
-        if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
+        if (playerWrap.classList.contains('controls-visible')) {
+          clearTimeout(hideTimer);
+          playerWrap.classList.remove('controls-visible');
+          playerWrap.classList.add('controls-hidden');
+        } else {
+          showControls();
+        }
       }
     });
 
@@ -3669,6 +3726,7 @@ app.get('/private-watch', (req, res) => {
       currentActiveServerIdx = 0;
       renderServerBar();
       playFromUrl(currentServers[0].url);
+      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id);
     }
 
     function renderChannels(list) {
@@ -3763,6 +3821,30 @@ app.get('/private-watch', (req, res) => {
           localStorage.removeItem('miz_refresh'); sessionStorage.removeItem('miz_private_ok');
           window.location.replace('/');
         });
+        if (isAdmin) {
+          const badge = document.getElementById('viewer-badge');
+          const countEl = document.getElementById('viewer-count');
+          const tok = localStorage.getItem('miz_token');
+          let _currentChId = null, _hbTimer = null, _pollTimer = null;
+          function sendHeartbeat() {
+            if (!_currentChId) return;
+            fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId }) }).catch(()=>{});
+          }
+          function pollViewers() {
+            if (!_currentChId) return;
+            fetch('/api/admin/viewers/' + _currentChId, { headers: { 'Authorization': 'Bearer ' + tok } })
+              .then(r => r.json()).then(d => { if (countEl) countEl.textContent = d.count ?? '—'; }).catch(()=>{});
+          }
+          window._startViewerTracking = function(chId) {
+            _currentChId = chId;
+            if (badge) badge.style.display = 'flex';
+            if (countEl) countEl.textContent = '—';
+            clearInterval(_hbTimer); clearInterval(_pollTimer);
+            sendHeartbeat(); pollViewers();
+            _hbTimer = setInterval(sendHeartbeat, 30000);
+            _pollTimer = setInterval(pollViewers, 30000);
+          };
+        }
       }
     }
     async function initAuth() {
@@ -3854,6 +3936,15 @@ app.get('/watch', (req, res) => {
     }
     .player-wrapper.controls-visible .controls-bar { opacity: 1; pointer-events: auto; }
     .player-wrapper.controls-hidden * { cursor: none; }
+    .viewer-badge {
+      position: absolute; bottom: 56px; right: 12px;
+      background: rgba(0,0,0,0.65); color: #fff;
+      font-size: 12px; font-weight: 600; padding: 4px 9px;
+      border-radius: 20px; pointer-events: none;
+      display: flex; align-items: center; gap: 5px;
+      backdrop-filter: blur(4px); z-index: 20;
+      transition: opacity 0.3s;
+    }
 
     /* Progress / live bar */
     .progress-row {
@@ -4216,6 +4307,7 @@ app.get('/watch', (req, res) => {
       <div class="spinner"></div>
       <span style="color:#777;font-size:12px;">Loading stream...</span>
     </div>
+    <div class="viewer-badge" id="viewer-badge" style="display:none">👁 <span id="viewer-count">—</span></div>
 
     <!-- Error -->
     <div id="error-msg">
@@ -4385,8 +4477,8 @@ app.get('/watch', (req, res) => {
       }, 3000);
     }
     playerWrap.addEventListener('mousemove', showControls);
-    playerWrap.addEventListener('touchstart', showControls);
-    playerWrap.addEventListener('touchmove', showControls);
+    playerWrap.addEventListener('touchstart', showControls, { passive: true });
+    playerWrap.addEventListener('touchmove', showControls, { passive: true });
 
     /* ── Play / Pause ────────────────────────── */
     function updatePlayIcon() {
@@ -4399,14 +4491,20 @@ app.get('/watch', (req, res) => {
     }
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashCenter(video.paused);
       if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
     });
     video.addEventListener('play',  () => { updatePlayIcon(); showControls(); });
     video.addEventListener('pause', () => { updatePlayIcon(); playerWrap.classList.add('controls-visible'); });
     playerWrap.addEventListener('click', (e) => {
       if (e.target === playerWrap || e.target === video) {
-        flashCenter(video.paused);
-        if (video.paused) { video.play().catch(()=>{}); } else { video.pause(); }
+        if (playerWrap.classList.contains('controls-visible')) {
+          clearTimeout(hideTimer);
+          playerWrap.classList.remove('controls-visible');
+          playerWrap.classList.add('controls-hidden');
+        } else {
+          showControls();
+        }
       }
     });
 
@@ -4693,6 +4791,7 @@ app.get('/watch', (req, res) => {
       currentActiveServerIdx = 0;
       renderServerBar();
       playFromUrl(currentServers[0].url);
+      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id);
     }
 
     /* ── renderChannels ──────────────────────── */
@@ -4818,6 +4917,30 @@ app.get('/watch', (req, res) => {
           localStorage.removeItem('miz_refresh'); localStorage.removeItem('miz_guest_time');
           window.location.reload();
         });
+        if (isAdmin) {
+          const badge = document.getElementById('viewer-badge');
+          const countEl = document.getElementById('viewer-count');
+          const tok = localStorage.getItem('miz_token');
+          let _currentChId = null, _hbTimer = null, _pollTimer = null;
+          function sendHeartbeat() {
+            if (!_currentChId) return;
+            fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId }) }).catch(()=>{});
+          }
+          function pollViewers() {
+            if (!_currentChId) return;
+            fetch('/api/admin/viewers/' + _currentChId, { headers: { 'Authorization': 'Bearer ' + tok } })
+              .then(r => r.json()).then(d => { if (countEl) countEl.textContent = d.count ?? '—'; }).catch(()=>{});
+          }
+          window._startViewerTracking = function(chId) {
+            _currentChId = chId;
+            if (badge) badge.style.display = 'flex';
+            if (countEl) countEl.textContent = '—';
+            clearInterval(_hbTimer); clearInterval(_pollTimer);
+            sendHeartbeat(); pollViewers();
+            _hbTimer = setInterval(sendHeartbeat, 30000);
+            _pollTimer = setInterval(pollViewers, 30000);
+          };
+        }
       } else {
         area.innerHTML = '<a href="/login" class="auth-btn red">🔑 Login / Sign Up</a>';
       }
