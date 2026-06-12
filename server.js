@@ -47,6 +47,7 @@ const activeUsers = new Map();
 const ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
 const channelViewers = new Map(); // chId → Map(viewerKey → lastSeenMs)
 const VIEWER_TIMEOUT_MS = 60 * 1000;
+const userCurrentChannel = new Map(); // userId → {chId, chName, startedAt, sessionId}
 setInterval(() => {
   const now = Date.now();
   channelViewers.forEach((viewers, chId) => {
@@ -359,6 +360,40 @@ async function ensurePrivatePinColumn() {
 }
 ensurePrivatePinColumn();
 
+async function ensureActivityTables() {
+  try {
+    const ref = (process.env.SUPABASE_URL || '').match(/https?:\/\/([^.]+)/)?.[1];
+    const tok = process.env.SUPABASE_ACCESS_TOKEN;
+    if (!ref || !tok) return;
+    const sql = `
+      CREATE TABLE IF NOT EXISTS public.user_login_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL,
+        logged_in_at TIMESTAMPTZ DEFAULT NOW(),
+        ip TEXT
+      );
+      CREATE TABLE IF NOT EXISTS public.user_watch_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL,
+        channel_id INTEGER NOT NULL,
+        channel_name TEXT,
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        ended_at TIMESTAMPTZ,
+        duration_seconds INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_login_logs_user ON public.user_login_logs(user_id, logged_in_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_watch_sessions_user ON public.user_watch_sessions(user_id, started_at DESC);
+    `;
+    await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: sql })
+    });
+    console.log('Activity tables ensured');
+  } catch(e) { console.error('ensureActivityTables:', e.message); }
+}
+ensureActivityTables();
+
 /* ── Logo fallback API (SportsDB on-demand) ───────────── */
 app.get('/api/logo-fallback', async (req, res) => {
   const name = (req.query.name || '').trim();
@@ -506,20 +541,45 @@ app.post('/api/track/view', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── Login tracking ─────────────────────────────────────── */
+app.post('/api/track/login', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.json({ ok: false });
+  try {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || null;
+    await supabaseAdmin.from('user_login_logs').insert({ user_id: user.id, ip });
+  } catch(_) {}
+  res.json({ ok: true });
+});
+
 /* ── Viewer heartbeat (auth or guest by IP) ─────────────── */
 app.post('/api/track/heartbeat', async (req, res) => {
-  const { ch } = req.body;
+  const { ch, chName } = req.body;
   if (!ch || typeof ch !== 'number') return res.json({ ok: false });
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  let viewerKey;
-  if (token) {
-    const user = await verifyUser(req);
-    viewerKey = user ? 'u:' + user.id : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress);
-  } else {
-    viewerKey = 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress);
-  }
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const authUser = await verifyUser(req);
+  const viewerKey = authUser ? 'u:' + authUser.id : 'ip:' + ip;
+
   if (!channelViewers.has(ch)) channelViewers.set(ch, new Map());
   channelViewers.get(ch).set(viewerKey, Date.now());
+
+  if (authUser) {
+    activeUsers.set(authUser.id, Date.now());
+    const prev = userCurrentChannel.get(authUser.id);
+    const channelDisplayName = chName || channels.find(c => c.id === ch)?.channel_name || ('Channel ' + ch);
+    if (!prev || prev.chId !== ch) {
+      if (prev && prev.sessionId) {
+        const dur = Math.round((Date.now() - prev.startedAt) / 1000);
+        supabaseAdmin.from('user_watch_sessions').update({ ended_at: new Date().toISOString(), duration_seconds: dur }).eq('id', prev.sessionId).catch(()=>{});
+      }
+      try {
+        const { data } = await supabaseAdmin.from('user_watch_sessions').insert({ user_id: authUser.id, channel_id: ch, channel_name: channelDisplayName }).select('id').single();
+        userCurrentChannel.set(authUser.id, { chId: ch, chName: channelDisplayName, startedAt: Date.now(), sessionId: data?.id || null });
+      } catch(_) {
+        userCurrentChannel.set(authUser.id, { chId: ch, chName: channelDisplayName, startedAt: Date.now(), sessionId: null });
+      }
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -576,12 +636,41 @@ app.get('/api/admin/users', async (req, res) => {
     const { data: profiles } = await supabaseAdmin.from('profiles').select('id, role');
     const profileMap = {};
     (profiles || []).forEach(p => { profileMap[p.id] = p.role; });
-    const list = users.map(u => ({
-      id: u.id, email: u.email, role: profileMap[u.id] || 'member',
-      created_at: u.created_at,
-      banned: !!(u.banned_until && new Date(u.banned_until) > new Date()),
-    }));
+    const now = Date.now();
+    activeUsers.forEach((t, id) => { if (now - t > ACTIVE_THRESHOLD_MS) activeUsers.delete(id); });
+    const list = users.map(u => {
+      const isOnline = activeUsers.has(u.id);
+      const watching = userCurrentChannel.get(u.id);
+      return {
+        id: u.id, email: u.email, role: profileMap[u.id] || 'member',
+        created_at: u.created_at,
+        banned: !!(u.banned_until && new Date(u.banned_until) > new Date()),
+        is_online: isOnline,
+        last_seen: activeUsers.get(u.id) || null,
+        watching_channel: (isOnline && watching) ? { id: watching.chId, name: watching.chName } : null,
+      };
+    });
     res.json({ users: list });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ── Admin: User activity history ───────────────────────── */
+app.get('/api/admin/users/:id/activity', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const role = await getUserRole(user.id);
+  if (role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const uid = req.params.id;
+  try {
+    const [{ data: logins }, { data: sessions }] = await Promise.all([
+      supabaseAdmin.from('user_login_logs').select('id,logged_in_at,ip').eq('user_id', uid).order('logged_in_at', { ascending: false }).limit(200),
+      supabaseAdmin.from('user_watch_sessions').select('id,channel_id,channel_name,started_at,ended_at,duration_seconds').eq('user_id', uid).order('started_at', { ascending: false }).limit(500),
+    ]);
+    const events = [];
+    (logins || []).forEach(l => events.push({ type: 'login', at: l.logged_in_at, ip: l.ip }));
+    (sessions || []).forEach(s => events.push({ type: 'watch', at: s.started_at, channel_id: s.channel_id, channel_name: s.channel_name, ended_at: s.ended_at, duration_seconds: s.duration_seconds }));
+    events.sort((a, b) => new Date(b.at) - new Date(a.at));
+    res.json({ activity: events });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -880,6 +969,7 @@ app.get('/login', (req, res) => {
       localStorage.setItem('miz_token', data.session.access_token);
       localStorage.setItem('miz_refresh', data.session.refresh_token);
       localStorage.removeItem('miz_guest_time');
+      fetch('/api/track/login', { method: 'POST', headers: { Authorization: 'Bearer ' + data.session.access_token } }).catch(()=>{});
       msg.className='msg ok'; msg.textContent='✅ Login সফল! Redirect হচ্ছে...';
       setTimeout(() => window.location.href = '/', 700);
     });
@@ -1209,6 +1299,23 @@ app.get('/admin', async (req, res) => {
     .badge-banned{background:#3a1a1a;color:#f66}
     .badge-on{background:#1a3a1a;color:#4c4}
     .badge-off{background:#3a1a1a;color:#f66}
+    .online-dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
+    .online-dot.online{background:#33ff77;box-shadow:0 0 5px #33ff77}
+    .online-dot.offline{background:#555}
+    #activity-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9999;align-items:center;justify-content:center}
+    #activity-modal.open{display:flex}
+    #activity-box{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;width:min(700px,96vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+    #activity-box-header{padding:16px 20px;border-bottom:1px solid #2a2a4a;display:flex;justify-content:space-between;align-items:center}
+    #activity-box-header h3{margin:0;font-size:16px;color:#ddd}
+    #act-close{background:none;border:none;color:#888;font-size:22px;cursor:pointer;line-height:1}
+    #activity-body{overflow-y:auto;padding:16px 20px;flex:1}
+    .act-event{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #1e1e38}
+    .act-event:last-child{border-bottom:none}
+    .act-icon{font-size:20px;min-width:28px;text-align:center}
+    .act-detail{flex:1}
+    .act-title{font-size:13px;font-weight:600;color:#ccc}
+    .act-time{font-size:11px;color:#666;margin-top:2px}
+    .act-dur{font-size:11px;color:#9a8;margin-top:2px}
     .act-btn{background:#1e1e1e;border:1px solid #2a2a2a;color:#ccc;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;transition:all .15s;white-space:nowrap}
     .act-btn:hover{background:#2a2a2a;color:#fff}
     .act-blue{border-color:#1a3a6a;color:#7af}
@@ -1613,20 +1720,33 @@ app.get('/admin', async (req, res) => {
     allUsers = d.users || [];
     renderUsers(allUsers);
   }
+  function timeSince(ms) {
+    const s = Math.floor((Date.now() - ms) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
   function renderUsers(list) {
     const el = document.getElementById('users-list');
     if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:20px">কোনো user নেই।</div>'; return; }
     el.innerHTML = list.map(u => \`
       <div class="user-row">
         <div class="u-info">
-          <div class="u-email">\${u.email}</div>
+          <div class="u-email" style="display:flex;align-items:center;gap:7px">
+            <span class="online-dot \${u.is_online ? 'online' : 'offline'}" title="\${u.is_online ? 'Online' : (u.last_seen ? 'Last seen ' + timeSince(u.last_seen) : 'Offline')}"></span>
+            \${u.email}
+          </div>
           <div class="u-meta">
-            <span>\${new Date(u.created_at).toLocaleDateString()}</span>
+            <span>Joined \${new Date(u.created_at).toLocaleDateString()}</span>
             <span class="badge badge-\${u.role}">\${u.role === 'admin' ? '⭐ Admin' : '👤 Member'}</span>
             \${u.banned ? '<span class="badge badge-banned">🚫 Banned</span>' : ''}
+            \${u.is_online ? '<span style="font-size:11px;color:#3f3;font-weight:600">🟢 Online</span>' : (u.last_seen ? '<span style="font-size:11px;color:#666">⚫ ' + timeSince(u.last_seen) + '</span>' : '')}
+            \${u.watching_channel ? '<span style="font-size:11px;color:#e88;font-weight:600">📺 ' + u.watching_channel.name + '</span>' : ''}
           </div>
         </div>
         <div class="u-actions">
+          <button class="act-btn" style="border-color:#1a3a5a;color:#6af" onclick="openActivity('\${u.id}','\${u.email.replace(/'/g,'&apos;')}')">📋 Details</button>
           \${u.role === 'admin'
             ? \`<button class="act-btn" onclick="setRole('\${u.id}','member')">👤 Member</button>\`
             : \`<button class="act-btn act-blue" onclick="setRole('\${u.id}','admin')">⭐ Admin</button>\`}
@@ -2107,7 +2227,70 @@ app.get('/admin', async (req, res) => {
     if (d.success) { await loadPcAccess(_pcAccessId); showMsg('Access removed!', true); }
     else showMsg(d.error || 'Error', false);
   }
+  /* ── Activity Modal ── */
+  function fmtDur(secs) {
+    if (!secs) return '';
+    if (secs < 60) return secs + 's';
+    if (secs < 3600) return Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+    return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
+  }
+  function fmtDT(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  }
+  async function openActivity(uid, email) {
+    const modal = document.getElementById('activity-modal');
+    const body = document.getElementById('activity-body');
+    document.getElementById('activity-user-label').textContent = email;
+    body.innerHTML = '<div style="text-align:center;color:#555;padding:20px">Loading...</div>';
+    modal.classList.add('open');
+    try {
+      const r = await fetch('/api/admin/users/' + uid + '/activity', { headers: { Authorization: 'Bearer ' + token } });
+      const d = await r.json();
+      const events = d.events || [];
+      if (!events.length) { body.innerHTML = '<div style="text-align:center;color:#555;padding:30px">কোনো activity নেই।</div>'; return; }
+      body.innerHTML = events.map(ev => {
+        if (ev.type === 'login') return \`
+          <div class="act-event">
+            <div class="act-icon">🔑</div>
+            <div class="act-detail">
+              <div class="act-title">Login</div>
+              <div class="act-time">\${fmtDT(ev.at)}</div>
+              \${ev.ip ? '<div class="act-dur">IP: ' + ev.ip + '</div>' : ''}
+            </div>
+          </div>\`;
+        if (ev.type === 'watch') return \`
+          <div class="act-event">
+            <div class="act-icon">📺</div>
+            <div class="act-detail">
+              <div class="act-title">\${ev.channel_name || 'Unknown Channel'}</div>
+              <div class="act-time">\${fmtDT(ev.at)}</div>
+              \${ev.duration_seconds ? '<div class="act-dur">⏱ ' + fmtDur(ev.duration_seconds) + '</div>' : (ev.ended_at ? '' : '<div class="act-dur" style="color:#3f3">🟢 Watching now</div>')}
+            </div>
+          </div>\`;
+        return '';
+      }).join('');
+    } catch(e) {
+      body.innerHTML = '<div style="color:#f66;padding:20px">Error loading activity.</div>';
+    }
+  }
+  document.getElementById('act-close').addEventListener('click', () => {
+    document.getElementById('activity-modal').classList.remove('open');
+  });
+  document.getElementById('activity-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
 </script>
+<div id="activity-modal">
+  <div id="activity-box">
+    <div id="activity-box-header">
+      <h3>📋 Activity — <span id="activity-user-label"></span></h3>
+      <button id="act-close">✕</button>
+    </div>
+    <div id="activity-body"></div>
+  </div>
+</div>
 </body></html>`);
 });
 
@@ -3727,7 +3910,7 @@ app.get('/private-watch', (req, res) => {
       currentActiveServerIdx = 0;
       renderServerBar();
       playFromUrl(currentServers[0].url);
-      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id);
+      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id, channel.name || channel.channel_name || null);
     }
 
     function renderChannels(list) {
@@ -3822,28 +4005,36 @@ app.get('/private-watch', (req, res) => {
           localStorage.removeItem('miz_refresh'); sessionStorage.removeItem('miz_private_ok');
           window.location.replace('/');
         });
+        const tok = localStorage.getItem('miz_token');
+        let _currentChId = null, _currentChName = null, _hbTimer = null;
+        function sendHeartbeat() {
+          if (!_currentChId) return;
+          fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId, chName: _currentChName }) }).catch(()=>{});
+        }
         if (isAdmin) {
           const badge = document.getElementById('viewer-badge');
           const countEl = document.getElementById('viewer-count');
-          const tok = localStorage.getItem('miz_token');
-          let _currentChId = null, _hbTimer = null, _pollTimer = null;
-          function sendHeartbeat() {
-            if (!_currentChId) return;
-            fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId }) }).catch(()=>{});
-          }
+          let _pollTimer = null;
           function pollViewers() {
             if (!_currentChId) return;
             fetch('/api/admin/viewers/' + _currentChId, { headers: { 'Authorization': 'Bearer ' + tok } })
               .then(r => r.json()).then(d => { if (countEl) countEl.textContent = d.count ?? '—'; }).catch(()=>{});
           }
-          window._startViewerTracking = function(chId) {
-            _currentChId = chId;
+          window._startViewerTracking = function(chId, chName) {
+            _currentChId = chId; _currentChName = chName || null;
             if (badge) badge.style.display = 'flex';
             if (countEl) countEl.textContent = '—';
             clearInterval(_hbTimer); clearInterval(_pollTimer);
             sendHeartbeat(); pollViewers();
             _hbTimer = setInterval(sendHeartbeat, 30000);
             _pollTimer = setInterval(pollViewers, 30000);
+          };
+        } else {
+          window._startViewerTracking = function(chId, chName) {
+            _currentChId = chId; _currentChName = chName || null;
+            clearInterval(_hbTimer);
+            sendHeartbeat();
+            _hbTimer = setInterval(sendHeartbeat, 30000);
           };
         }
       }
@@ -4793,7 +4984,7 @@ app.get('/watch', (req, res) => {
       currentActiveServerIdx = 0;
       renderServerBar();
       playFromUrl(currentServers[0].url);
-      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id);
+      if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id, channel.channel_name || channel.name || null);
     }
 
     /* ── renderChannels ──────────────────────── */
@@ -4919,28 +5110,36 @@ app.get('/watch', (req, res) => {
           localStorage.removeItem('miz_refresh'); localStorage.removeItem('miz_guest_time');
           window.location.reload();
         });
+        const tok = localStorage.getItem('miz_token');
+        let _currentChId = null, _currentChName = null, _hbTimer = null;
+        function sendHeartbeat() {
+          if (!_currentChId) return;
+          fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId, chName: _currentChName }) }).catch(()=>{});
+        }
         if (isAdmin) {
           const badge = document.getElementById('viewer-badge');
           const countEl = document.getElementById('viewer-count');
-          const tok = localStorage.getItem('miz_token');
-          let _currentChId = null, _hbTimer = null, _pollTimer = null;
-          function sendHeartbeat() {
-            if (!_currentChId) return;
-            fetch('/api/track/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }, body: JSON.stringify({ ch: _currentChId }) }).catch(()=>{});
-          }
+          let _pollTimer = null;
           function pollViewers() {
             if (!_currentChId) return;
             fetch('/api/admin/viewers/' + _currentChId, { headers: { 'Authorization': 'Bearer ' + tok } })
               .then(r => r.json()).then(d => { if (countEl) countEl.textContent = d.count ?? '—'; }).catch(()=>{});
           }
-          window._startViewerTracking = function(chId) {
-            _currentChId = chId;
+          window._startViewerTracking = function(chId, chName) {
+            _currentChId = chId; _currentChName = chName || null;
             if (badge) badge.style.display = 'flex';
             if (countEl) countEl.textContent = '—';
             clearInterval(_hbTimer); clearInterval(_pollTimer);
             sendHeartbeat(); pollViewers();
             _hbTimer = setInterval(sendHeartbeat, 30000);
             _pollTimer = setInterval(pollViewers, 30000);
+          };
+        } else {
+          window._startViewerTracking = function(chId, chName) {
+            _currentChId = chId; _currentChName = chName || null;
+            clearInterval(_hbTimer);
+            sendHeartbeat();
+            _hbTimer = setInterval(sendHeartbeat, 30000);
           };
         }
       } else {
