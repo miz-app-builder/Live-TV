@@ -2248,7 +2248,7 @@ app.get('/admin', async (req, res) => {
     try {
       const r = await fetch('/api/admin/users/' + uid + '/activity', { headers: { Authorization: 'Bearer ' + token } });
       const d = await r.json();
-      const events = d.events || [];
+      const events = d.activity || [];
       if (!events.length) { body.innerHTML = '<div style="text-align:center;color:#555;padding:30px">কোনো activity নেই।</div>'; return; }
       body.innerHTML = events.map(ev => {
         if (ev.type === 'login') return \`
