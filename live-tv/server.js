@@ -2294,6 +2294,11 @@ app.get('/admin', async (req, res) => {
 </body></html>`);
 });
 
+app.get('/googledbd050bd9f076437.html', (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send('google-site-verification: googledbd050bd9f076437.html');
+});
+
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en">
