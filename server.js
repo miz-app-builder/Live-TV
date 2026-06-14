@@ -1102,9 +1102,16 @@ app.get('/api/admin/private-channels', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   try {
-    const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name', { ascending: true });
-    if (error) throw error;
-    res.json({ channels: data });
+    let allPc = [], pcFrom = 0;
+    while(true) {
+      const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name', { ascending: true }).range(pcFrom, pcFrom + 999);
+      if (error) throw error;
+      if (!data || !data.length) break;
+      allPc = allPc.concat(data);
+      pcFrom += 1000;
+      if (data.length < 1000) break;
+    }
+    res.json({ channels: allPc });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1243,9 +1250,16 @@ app.get('/api/user/private-channels', async (req, res) => {
   try {
     const role = await getUserRole(user.id);
     if (role === 'admin') {
-      const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name');
-      if (error) throw error;
-      const withCountryA = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
+      let allPcU = [], pcFromU = 0;
+      while(true) {
+        const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name', { ascending: true }).range(pcFromU, pcFromU + 999);
+        if (error) throw error;
+        if (!data || !data.length) break;
+        allPcU = allPcU.concat(data);
+        pcFromU += 1000;
+        if (data.length < 1000) break;
+      }
+      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
       const gMapA = new Map();
       withCountryA.forEach(ch => {
         const key = ch.name.toLowerCase().trim();
@@ -1539,6 +1553,7 @@ app.get('/admin', async (req, res) => {
     </div>
     <input class="search-bar" id="pc-search" placeholder="🔍 Private channel খোঁজো (name/category)..." />
     <div class="ch-list" id="pc-list"><div style="color:#444;text-align:center;padding:20px">Loading...</div></div>
+    <div id="pc-pagination"></div>
   </div>
 </div>
 
@@ -2170,8 +2185,13 @@ app.get('/admin', async (req, res) => {
 
   /* ─── Private Channels Tab ─── */
   let allPrivateChannels = [];
+  let pcCurrentList = [];
+  let pcPage = 1;
+  const PC_PER_PAGE = 100;
+
   async function loadPrivateTab() {
     document.getElementById('pc-list').innerHTML = '<div style="color:#444;text-align:center;padding:20px">Loading...</div>';
+    document.getElementById('pc-pagination').innerHTML = '';
     const r = await fetch('/api/admin/private-channels', { headers: { Authorization: 'Bearer ' + token } });
     const d = await r.json();
     allPrivateChannels = d.channels || [];
@@ -2179,10 +2199,24 @@ app.get('/admin', async (req, res) => {
     document.getElementById('pc-access-count').textContent = '—';
     renderPrivateChannels(allPrivateChannels);
   }
+
   function renderPrivateChannels(list) {
+    pcCurrentList = list;
+    pcPage = 1;
+    renderPcPage();
+  }
+
+  function renderPcPage() {
     const el = document.getElementById('pc-list');
-    if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:24px">কোনো private channel নেই। ➕ Add করো।</div>'; return; }
-    el.innerHTML = list.map(ch => \`
+    if (!pcCurrentList.length) {
+      el.innerHTML = '<div style="color:#444;text-align:center;padding:24px">কোনো private channel নেই। ➕ Add করো।</div>';
+      document.getElementById('pc-pagination').innerHTML = '';
+      return;
+    }
+    const totalPages = Math.ceil(pcCurrentList.length / PC_PER_PAGE);
+    const start = (pcPage - 1) * PC_PER_PAGE;
+    const pageItems = pcCurrentList.slice(start, start + PC_PER_PAGE);
+    el.innerHTML = pageItems.map(ch => \`
       <div class="ch-row" id="pc-row-\${ch.id}">
         <div class="ch-row-top">
           <span class="ch-name" title="\${ch.name}" style="flex:1">\${ch.name}</span>
@@ -2197,7 +2231,40 @@ app.get('/admin', async (req, res) => {
         </div>
       </div>
     \`).join('');
+    renderPcPagination(totalPages);
   }
+
+  function renderPcPagination(totalPages) {
+    const el = document.getElementById('pc-pagination');
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+    const pStyle = 'background:#1a1a1a;border:1px solid #2a2a2a;color:#888;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s';
+    const pActive = 'background:#e00;border-color:#e00;color:#fff';
+    const pDis = 'opacity:0.35;cursor:default';
+    let pages = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= pcPage - 2 && i <= pcPage + 2)) pages.push(i);
+      else if (pages[pages.length - 1] !== '...') pages.push('...');
+    }
+    const pageBtns = pages.map(p =>
+      p === '...' ? \`<span style="color:#444;padding:0 3px">…</span>\` :
+      \`<button style="\${pStyle};\${p===pcPage?pActive:''}" onclick="pcGoPage(\${p})">\${p}</button>\`
+    ).join('');
+    el.innerHTML = \`<div style="display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 4px;flex-wrap:wrap">
+      <span style="color:#555;font-size:11px;margin-right:4px">Page \${pcPage}/\${totalPages} · \${pcCurrentList.length} channels</span>
+      <button style="\${pStyle};\${pcPage===1?pDis:''}" onclick="pcGoPage(\${pcPage-1})" \${pcPage===1?'disabled':''}>← Prev</button>
+      \${pageBtns}
+      <button style="\${pStyle};\${pcPage===totalPages?pDis:''}" onclick="pcGoPage(\${pcPage+1})" \${pcPage===totalPages?'disabled':''}>Next →</button>
+    </div>\`;
+  }
+
+  function pcGoPage(p) {
+    const total = Math.ceil(pcCurrentList.length / PC_PER_PAGE);
+    if (p < 1 || p > total || p === pcPage) return;
+    pcPage = p;
+    renderPcPage();
+    document.getElementById('pc-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   document.getElementById('pc-search').addEventListener('input', e => {
     const q = e.target.value.toLowerCase().trim();
     renderPrivateChannels(q ? allPrivateChannels.filter(c => c.name.toLowerCase().includes(q) || (c.category||'').toLowerCase().includes(q)) : allPrivateChannels);
@@ -3199,6 +3266,7 @@ app.get('/private-tv', (req, res) => {
       <span class="grid-count" id="grid-count"></span>
     </div>
     <div class="grid-channels" id="grid-channels"></div>
+    <div id="grid-pagination"></div>
   </div>
   <script>
     (function() {
@@ -3217,6 +3285,9 @@ app.get('/private-tv', (req, res) => {
     let allChannels = [];
     let activeCategory = 'All';
     let activeCountry = 'All';
+    let tvPage = 1;
+    const TV_PER_PAGE = 100;
+    let tvFilteredList = [];
 
     const LOGO_COLORS = ['#c0392b','#8e44ad','#2980b9','#16a085','#d35400','#c0392b','#1a5276','#6c3483','#1e8449','#b7950b'];
     function logoColor(name) {
@@ -3250,18 +3321,29 @@ app.get('/private-tv', (req, res) => {
     }
 
     function renderGrid(list) {
+      tvFilteredList = list;
+      tvPage = 1;
+      renderTvPage();
+    }
+
+    function renderTvPage() {
       gridChannels.innerHTML = '';
-      if (!list.length) {
+      const pgEl = document.getElementById('grid-pagination');
+      if (!tvFilteredList.length) {
         const empty = document.createElement('div');
         empty.className = 'no-results';
         empty.style.gridColumn = '1/-1';
         empty.textContent = 'No channels found.';
         gridChannels.appendChild(empty);
+        if (pgEl) pgEl.innerHTML = '';
         return;
       }
-      gridCount.textContent = list.length + ' channels';
+      const totalPages = Math.ceil(tvFilteredList.length / TV_PER_PAGE);
+      const start = (tvPage - 1) * TV_PER_PAGE;
+      const pageItems = tvFilteredList.slice(start, start + TV_PER_PAGE);
+      gridCount.textContent = tvFilteredList.length + ' channels · Page ' + tvPage + '/' + totalPages;
       const frag = document.createDocumentFragment();
-      list.forEach(ch => {
+      pageItems.forEach(ch => {
         const card = document.createElement('div');
         card.className = 'grid-card';
         const fallback = document.createElement('div');
@@ -3278,12 +3360,42 @@ app.get('/private-tv', (req, res) => {
         nameEl.className = 'grid-name';
         nameEl.textContent = ch.name;
         card.appendChild(nameEl);
-        card.addEventListener('click', () => {
-          window.location.href = '/private-watch?ch=' + ch.id;
-        });
+        card.addEventListener('click', () => { window.location.href = '/private-watch?ch=' + ch.id; });
         frag.appendChild(card);
       });
       gridChannels.appendChild(frag);
+      renderTvPagination(totalPages);
+    }
+
+    function renderTvPagination(totalPages) {
+      const pgEl = document.getElementById('grid-pagination');
+      if (!pgEl) return;
+      if (totalPages <= 1) { pgEl.innerHTML = ''; return; }
+      const pStyle = 'background:#1a1a1a;border:1px solid #2a2a2a;color:#888;padding:7px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s';
+      const pActive = 'background:#e00;border-color:#e00;color:#fff';
+      const pDis = 'opacity:0.35;cursor:default;pointer-events:none';
+      let pages = [];
+      for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= tvPage - 2 && i <= tvPage + 2)) pages.push(i);
+        else if (pages[pages.length - 1] !== '...') pages.push('...');
+      }
+      const pageBtns = pages.map(p =>
+        p === '...' ? '<span style="color:#444;padding:0 4px">…</span>' :
+        '<button style="' + pStyle + ';' + (p === tvPage ? pActive : '') + '" onclick="tvGoPage(' + p + ')">' + p + '</button>'
+      ).join('');
+      pgEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:20px 8px;flex-wrap:wrap">' +
+        '<button style="' + pStyle + ';' + (tvPage === 1 ? pDis : '') + '" onclick="tvGoPage(' + (tvPage - 1) + ')"' + (tvPage === 1 ? ' disabled' : '') + '>← Prev</button>' +
+        pageBtns +
+        '<button style="' + pStyle + ';' + (tvPage === totalPages ? pDis : '') + '" onclick="tvGoPage(' + (tvPage + 1) + ')"' + (tvPage === totalPages ? ' disabled' : '') + '>Next →</button>' +
+        '</div>';
+    }
+
+    function tvGoPage(p) {
+      const total = Math.ceil(tvFilteredList.length / TV_PER_PAGE);
+      if (p < 1 || p > total || p === tvPage) return;
+      tvPage = p;
+      renderTvPage();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function getCategories(list) {
