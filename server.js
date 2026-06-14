@@ -4340,6 +4340,43 @@ app.get('/watch', (req, res) => {
     .play-btn:hover { background: #c00; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
 
+    /* Category filters */
+    .cat-filters { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px; }
+    .cat-btn { background:#141414; border:1px solid #1e1e1e; color:#666; font-size:11px; font-weight:600; padding:5px 10px; border-radius:20px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+    .cat-btn:hover { border-color:#555; color:#ccc; }
+    .cat-btn.active { background:#e00; border-color:#e00; color:#fff; }
+
+    /* Fav button */
+    .fav-btn { background:none; border:none; font-size:15px; cursor:pointer; padding:0 4px; line-height:1; opacity:.5; transition:opacity .15s, transform .1s; flex-shrink:0; }
+    .fav-btn:hover { opacity:1; }
+    .fav-btn.active { opacity:1; }
+
+    /* HD badge */
+    .hd-badge { font-size:8px; font-weight:800; background:#1a2a4a; color:#7af; border:1px solid #2a4a7a; border-radius:3px; padding:1px 4px; letter-spacing:.5px; flex-shrink:0; }
+
+    /* Recently Watched */
+    .recent-section { margin-bottom:10px; }
+    .recent-label { font-size:10px; font-weight:700; color:#555; letter-spacing:.8px; text-transform:uppercase; margin-bottom:6px; }
+    .recent-row { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+    .recent-row::-webkit-scrollbar { display:none; }
+    .recent-chip { flex-shrink:0; background:#141414; border:1px solid #1e1e1e; border-radius:8px; padding:5px 10px; font-size:11px; color:#aaa; cursor:pointer; white-space:nowrap; transition:all .15s; }
+    .recent-chip:hover { border-color:#e00; color:#fff; }
+
+    /* Share toast */
+    #share-toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(20px); background:#222; border:1px solid #333; color:#ccc; font-size:12px; padding:8px 18px; border-radius:20px; z-index:9999; opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; }
+    #share-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    /* Keyboard shortcut hint */
+    #kb-hint { position:fixed; bottom:80px; right:16px; background:#111; border:1px solid #222; border-radius:10px; padding:10px 14px; font-size:11px; color:#555; z-index:9998; opacity:0; transition:opacity .3s; pointer-events:none; line-height:1.8; }
+    #kb-hint.show { opacity:1; }
+    #kb-hint span { color:#888; }
+
+    /* Resume prompt */
+    #resume-bar { display:none; background:#1a1a1a; border:1px solid #2a2a2a; border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:12px; color:#aaa; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #resume-bar.show { display:flex; }
+    #resume-bar button { background:#e00; border:none; color:#fff; font-size:11px; font-weight:700; padding:5px 12px; border-radius:6px; cursor:pointer; }
+    #resume-dismiss { background:#222 !important; color:#888 !important; }
+
     /* Grid view */
     #grid-view {
       width: 100%; max-width: 960px;
@@ -4488,6 +4525,11 @@ app.get('/watch', (req, res) => {
           </div>
         </div>
 
+        <!-- Share -->
+        <button class="ctrl-btn" id="btn-share" title="Share Channel">
+          <svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+        </button>
+
         <!-- Picture-in-Picture -->
         <button class="ctrl-btn" id="btn-pip" title="Picture in Picture" style="display:none">
           <svg id="pip-icon" viewBox="0 0 24 24"><path d="M19 7H9c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm0 8H9V9h10v6zM3 5v14h2V5H3zm4-2v2h12V3H7z"/></svg>
@@ -4531,9 +4573,36 @@ app.get('/watch', (req, res) => {
       <span class="ch-count" id="ch-count"></span>
     </div>
     <input class="search-bar" id="search" type="text" placeholder="&#128269;  Search channels..." autocomplete="off" />
+    <div class="cat-filters" id="cat-filters">
+      <button class="cat-btn active" data-cat="all">🔴 All</button>
+      <button class="cat-btn" data-cat="favourites">❤️ Favs</button>
+      <button class="cat-btn" data-cat="bangla" id="cnt-bangla">🇧🇩 Bangla</button>
+      <button class="cat-btn" data-cat="news" id="cnt-news">📰 News</button>
+      <button class="cat-btn" data-cat="movies" id="cnt-movies">🎬 Movies</button>
+      <button class="cat-btn" data-cat="music" id="cnt-music">🎵 Music</button>
+      <button class="cat-btn" data-cat="kids" id="cnt-kids">👶 Kids</button>
+      <button class="cat-btn" data-cat="sports" id="cnt-sports">⚽ Sports</button>
+      <button class="cat-btn" data-cat="international" id="cnt-intl">🌍 Intl</button>
+    </div>
+    <div id="resume-bar">
+      <span id="resume-label">📺 Resume watching?</span>
+      <div style="display:flex;gap:6px">
+        <button id="resume-yes">▶ Resume</button>
+        <button id="resume-dismiss">✕</button>
+      </div>
+    </div>
+    <div class="recent-section" id="recent-section" style="display:none">
+      <div class="recent-label">🕐 Recently Watched</div>
+      <div class="recent-row" id="recent-row"></div>
+    </div>
     <div class="channel-list" id="channel-list">
       <div style="color:#444;font-size:13px;padding:14px;">Loading channels...</div>
     </div>
+  </div>
+  <div id="share-toast">🔗 Link copied!</div>
+  <div id="kb-hint">
+    <span>Space</span> Play/Pause &nbsp; <span>M</span> Mute &nbsp; <span>F</span> Fullscreen<br>
+    <span>↑↓</span> Volume &nbsp; <span>S</span> Share
   </div>
 
   <script>
@@ -4563,14 +4632,156 @@ app.get('/watch', (req, res) => {
     const centerIcon   = document.getElementById('center-icon');
     const centerSvg    = document.getElementById('center-svg');
     const serverBar    = document.getElementById('server-bar');
+    const btnShare     = document.getElementById('btn-share');
+    const shareToast   = document.getElementById('share-toast');
+    const kbHint       = document.getElementById('kb-hint');
+    const resumeBar    = document.getElementById('resume-bar');
+    const resumeLabel  = document.getElementById('resume-label');
+    const recentSec    = document.getElementById('recent-section');
+    const recentRow    = document.getElementById('recent-row');
 
-    let currentHls  = null;
-    let activeId    = null;
-    let allChannels = [];
-    let isAutoMode  = true;
-    let hideTimer   = null;
+    let currentHls     = null;
+    let activeId       = null;
+    let allChannels    = [];
+    let activeCategory = 'all';
+    let isAutoMode     = true;
+    let hideTimer      = null;
     let currentServers = [];
     let currentActiveServerIdx = 0;
+
+    /* ── Favorites ───────────────────────────── */
+    function getFavs() { try { return JSON.parse(localStorage.getItem('miz_favorites')||'[]'); } catch(e) { return []; } }
+    function saveFavs(a) { localStorage.setItem('miz_favorites', JSON.stringify(a)); }
+    function isFav(id) { return getFavs().includes(id); }
+    function toggleFav(id, ev) {
+      if (ev) ev.stopPropagation();
+      const favs = getFavs();
+      const idx = favs.indexOf(id);
+      if (idx >= 0) favs.splice(idx, 1); else favs.push(id);
+      saveFavs(favs);
+      document.querySelectorAll('.fav-btn[data-id="' + id + '"]').forEach(b => {
+        b.textContent = favs.includes(id) ? '❤️' : '🤍';
+        b.classList.toggle('active', favs.includes(id));
+      });
+      if (activeCategory === 'favourites') applyCategory();
+    }
+
+    /* ── Recently Watched ────────────────────── */
+    function getRecent() { try { return JSON.parse(localStorage.getItem('miz_recent')||'[]'); } catch(e) { return []; } }
+    function saveRecent(ch) {
+      let r = getRecent().filter(x => x.id !== ch.id);
+      r.unshift({ id: ch.id, name: ch.channel_name });
+      if (r.length > 10) r = r.slice(0, 10);
+      localStorage.setItem('miz_recent', JSON.stringify(r));
+    }
+    function renderRecent() {
+      const r = getRecent();
+      if (!r.length) { recentSec.style.display = 'none'; return; }
+      recentSec.style.display = '';
+      recentRow.innerHTML = r.map(c =>
+        '<div class="recent-chip" data-id="' + c.id + '">' + c.name + '</div>'
+      ).join('');
+      recentRow.querySelectorAll('.recent-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const ch = allChannels.find(x => x.id === parseInt(chip.dataset.id));
+          if (ch) { history.pushState({ chId: ch.id }, '', '/watch?ch=' + ch.id); playStream(ch); }
+        });
+      });
+    }
+
+    /* ── HD Detection ────────────────────────── */
+    function isHD(name) { return /\b(HD|FHD|4K|1080[pi]?|720p)\b/i.test(name); }
+
+    /* ── Category filter ─────────────────────── */
+    function getCatForChannel(ch) {
+      const cat = (ch.category || '').toLowerCase();
+      const name = (ch.channel_name || '').toLowerCase();
+      if (cat === 'bangla' || /bangla|bengali|বাংলা/.test(name)) return 'bangla';
+      if (cat === 'news' || /news|সংবাদ|খবর/.test(name)) return 'news';
+      if (cat === 'movies' || /movie|cinema|film|বিনোদন/.test(name)) return 'movies';
+      if (cat === 'music' || /music|গান|সঙ্গীত/.test(name)) return 'music';
+      if (cat === 'kids' || /kids|children|cartoon|baby|শিশু/.test(name)) return 'kids';
+      if (cat === 'sports' || /sport|cricket|football|খেলা/.test(name)) return 'sports';
+      if (cat === 'international') return 'international';
+      return 'other';
+    }
+    function applyCategory() {
+      const q = searchInput.value.toLowerCase().trim();
+      let list = q ? allChannels.filter(c => c.channel_name.toLowerCase().includes(q)) : allChannels;
+      if (activeCategory === 'favourites') {
+        const favs = getFavs();
+        list = list.filter(c => favs.includes(c.id));
+      } else if (activeCategory !== 'all') {
+        list = list.filter(c => getCatForChannel(c) === activeCategory);
+      }
+      chCount.textContent = list.length + ' channels';
+      renderChannels(list);
+    }
+    document.querySelectorAll('.cat-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeCategory = btn.dataset.cat;
+        applyCategory();
+      });
+    });
+    function updateCategoryCounts() {
+      const cats = { bangla:0, news:0, movies:0, music:0, kids:0, sports:0, international:0 };
+      allChannels.forEach(c => { const k = getCatForChannel(c); if (cats[k] !== undefined) cats[k]++; });
+      const idMap = { bangla:'cnt-bangla', news:'cnt-news', movies:'cnt-movies', music:'cnt-music', kids:'cnt-kids', sports:'cnt-sports', international:'cnt-intl' };
+      Object.entries(idMap).forEach(([cat, elId]) => {
+        const el = document.getElementById(elId);
+        if (el && cats[cat]) { const base = el.textContent.split(' (')[0]; el.textContent = base + ' (' + cats[cat] + ')'; }
+      });
+    }
+
+    /* ── Share ───────────────────────────────── */
+    let _shareTimer = null;
+    function shareChannel() {
+      if (!activeId) return;
+      const url = location.origin + '/watch?ch=' + activeId;
+      function _done() {
+        shareToast.classList.add('show');
+        clearTimeout(_shareTimer);
+        _shareTimer = setTimeout(() => shareToast.classList.remove('show'), 2000);
+      }
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(_done).catch(() => { _copyFallback(url); _done(); });
+      } else { _copyFallback(url); _done(); }
+    }
+    function _copyFallback(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    btnShare && btnShare.addEventListener('click', e => { e.stopPropagation(); shareChannel(); });
+
+    /* ── Keyboard Shortcuts ──────────────────── */
+    let _kbTimer = null;
+    document.addEventListener('keydown', e => {
+      const tag = document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      let handled = true;
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (video.paused) video.play().catch(()=>{}); else video.pause();
+      } else if (e.key === 'm' || e.key === 'M') {
+        video.muted = !video.muted; volSlider.value = video.muted ? 0 : video.volume;
+      } else if (e.key === 'f' || e.key === 'F') {
+        btnFs.click();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault(); video.volume = Math.min(1, video.volume + 0.1); video.muted = false; volSlider.value = video.volume;
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault(); video.volume = Math.max(0, video.volume - 0.1); volSlider.value = video.volume;
+      } else if (e.key === 's' || e.key === 'S') {
+        shareChannel();
+      } else { handled = false; }
+      if (handled) {
+        kbHint.classList.add('show');
+        clearTimeout(_kbTimer);
+        _kbTimer = setTimeout(() => kbHint.classList.remove('show'), 1800);
+      }
+    });
 
     function renderServerBar() {
       if (!serverBar) return;
@@ -4990,6 +5201,9 @@ app.get('/watch', (req, res) => {
       renderServerBar();
       playFromUrl(currentServers[0].url);
       if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id, channel.channel_name || channel.name || null);
+      saveRecent(channel);
+      localStorage.setItem('miz_last_ch', channel.id);
+      renderRecent();
     }
 
     /* ── renderChannels ──────────────────────── */
@@ -5000,16 +5214,21 @@ app.get('/watch', (req, res) => {
         return;
       }
       const frag = document.createDocumentFragment();
+      const favs = getFavs();
       list.forEach(ch => {
         const item = document.createElement('div');
         item.className = 'channel-item' + (ch.id === activeId ? ' active' : '');
         item.dataset.id = ch.id;
+        const hdBadge = isHD(ch.channel_name) ? '<span class="hd-badge">HD</span>' : '';
+        const favActive = favs.includes(ch.id);
         item.innerHTML =
           '<div class="channel-left">' +
             '<span class="ch-number">' + ch.id + '</span>' +
             '<span class="ch-name">' + ch.channel_name + '</span>' +
+            hdBadge +
           '</div>' +
           '<div class="ch-right">' +
+            '<button class="fav-btn' + (favActive?' active':'') + '" data-id="' + ch.id + '" title="Favourite">' + (favActive?'❤️':'🤍') + '</button>' +
             '<span class="ch-badge ' + (ch.status==='Online'?'online':'offline') + '">' + ch.status + '</span>' +
             '<button class="play-btn">&#9654;</button>' +
           '</div>';
@@ -5017,6 +5236,7 @@ app.get('/watch', (req, res) => {
           history.pushState({ chId: ch.id }, '', '/watch?ch=' + ch.id);
           playStream(ch);
         };
+        item.querySelector('.fav-btn').addEventListener('click', e => toggleFav(ch.id, e));
         item.querySelector('.play-btn').addEventListener('click', e => { e.stopPropagation(); switchChannel(); });
         item.addEventListener('click', switchChannel);
         frag.appendChild(item);
@@ -5024,12 +5244,7 @@ app.get('/watch', (req, res) => {
       channelList.appendChild(frag);
     }
 
-    searchInput.addEventListener('input', () => {
-      const q = searchInput.value.toLowerCase().trim();
-      const filtered = q ? allChannels.filter(c => c.channel_name.toLowerCase().includes(q)) : allChannels;
-      chCount.textContent = filtered.length + ' channels';
-      renderChannels(filtered);
-    });
+    searchInput.addEventListener('input', () => { applyCategory(); });
 
     window.addEventListener('popstate', (e) => {
       const id = e.state && e.state.chId
@@ -5051,11 +5266,29 @@ app.get('/watch', (req, res) => {
         const data = await r.json();
         allChannels = data.channels;
         chCount.textContent = allChannels.length + ' channels';
+        updateCategoryCounts();
+        renderRecent();
         renderChannels(allChannels);
         const urlChId = parseInt(new URLSearchParams(window.location.search).get('ch'));
         if (urlChId) {
           const ch = allChannels.find(c => c.id === urlChId);
           if (ch) { playStream(ch); return; }
+        }
+        /* ── Resume watching ── */
+        const lastId = parseInt(localStorage.getItem('miz_last_ch') || '0');
+        if (lastId) {
+          const lastCh = allChannels.find(c => c.id === lastId);
+          if (lastCh) {
+            resumeLabel.textContent = '📺 Resume: ' + lastCh.channel_name + '?';
+            resumeBar.classList.add('show');
+            document.getElementById('resume-yes').onclick = () => {
+              resumeBar.classList.remove('show');
+              history.pushState({ chId: lastCh.id }, '', '/watch?ch=' + lastCh.id);
+              playStream(lastCh);
+            };
+            document.getElementById('resume-dismiss').onclick = () => resumeBar.classList.remove('show');
+            return;
+          }
         }
         window.location.href = '/';
       } catch(e) {
