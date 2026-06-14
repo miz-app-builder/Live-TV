@@ -1446,6 +1446,20 @@ app.get('/admin', async (req, res) => {
     .url-btns{display:flex;gap:8px;justify-content:flex-end}
     #msg{position:fixed;bottom:20px;right:20px;background:#222;border:1px solid #333;border-radius:8px;padding:10px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:99999}
     #msg.show{opacity:1}
+    @media(max-width:600px){
+      .container{padding:16px 12px}
+      .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;border-radius:8px}
+      .tab-btn{flex:0 0 auto;font-size:11px;padding:8px 10px;white-space:nowrap}
+      .stat-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px}
+      .stat-card{padding:12px 14px}
+      .stat-card .num{font-size:24px}
+      .ch-name{max-width:none!important;flex:1}
+      .bulk-bar{gap:6px}
+      .bulk-bar .act-btn{flex:1}
+      header{padding:10px 14px}
+      .logo span{font-size:15px}
+      .back-btn{font-size:11px;padding:5px 10px}
+    }
   </style>
 </head>
 <body>
