@@ -4016,7 +4016,10 @@ app.get('/private-watch', (req, res) => {
           hls.attachMedia(video);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
-          video.addEventListener('playing', _clearStall, { passive: true });
+          function _onTimeUpdate() {
+            if (video.currentTime > 0) { _clearStall(); video.removeEventListener('timeupdate', _onTimeUpdate); }
+          }
+          video.addEventListener('timeupdate', _onTimeUpdate, { passive: true });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             loadingMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
@@ -4024,7 +4027,8 @@ app.get('/private-watch', (req, res) => {
             video.play().catch(()=>{});
             buildQualityMenu(); updatePlayIcon();
             _stallTimer = setTimeout(() => {
-              if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+              video.removeEventListener('timeupdate', _onTimeUpdate);
+              if (video.currentTime === 0) {
                 setStatus('offline', 'Stream not responding');
                 errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
                 errorMsg.classList.add('visible');
@@ -4037,6 +4041,7 @@ app.get('/private-watch', (req, res) => {
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
               _clearStall();
+              video.removeEventListener('timeupdate', _onTimeUpdate);
               hls.destroy();
               if (!_triedDirect && srcUrl === proxyUrl) {
                 _triedDirect = true;
@@ -5271,7 +5276,10 @@ app.get('/watch', (req, res) => {
           hls.attachMedia(video);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
-          video.addEventListener('playing', _clearStall, { passive: true });
+          function _onTimeUpdate() {
+            if (video.currentTime > 0) { _clearStall(); video.removeEventListener('timeupdate', _onTimeUpdate); }
+          }
+          video.addEventListener('timeupdate', _onTimeUpdate, { passive: true });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             loadingMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
@@ -5279,7 +5287,8 @@ app.get('/watch', (req, res) => {
             video.play().catch(()=>{});
             buildQualityMenu(); updatePlayIcon();
             _stallTimer = setTimeout(() => {
-              if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+              video.removeEventListener('timeupdate', _onTimeUpdate);
+              if (video.currentTime === 0) {
                 setStatus('offline', 'Stream not responding');
                 errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
                 errorMsg.classList.add('visible');
@@ -5292,6 +5301,7 @@ app.get('/watch', (req, res) => {
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
               _clearStall();
+              video.removeEventListener('timeupdate', _onTimeUpdate);
               hls.destroy();
               if (!_triedDirect && srcUrl === proxyUrl) {
                 _triedDirect = true;
