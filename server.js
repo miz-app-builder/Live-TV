@@ -3614,7 +3614,7 @@ app.get('/private-tv', (req, res) => {
       try {
         const tok = localStorage.getItem('miz_token');
         const r = await fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } });
-        if (r.status === 401) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+        if (r.status === 401) { window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
         if (!allChannels.length) {
@@ -3649,19 +3649,19 @@ app.get('/private-tv', (req, res) => {
         document.addEventListener('click', () => { const d = document.getElementById('user-drop'); if(d) d.classList.remove('open'); });
         document.getElementById('logout-btn').addEventListener('click', () => {
           localStorage.removeItem('miz_token'); localStorage.removeItem('miz_user');
-          localStorage.removeItem('miz_refresh'); sessionStorage.removeItem('miz_private_ok');
+          localStorage.removeItem('miz_refresh');
           window.location.replace('/');
         });
       }
     }
     async function initAuth() {
       const token = localStorage.getItem('miz_token');
-      if (!token) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+      if (!token) { window.location.replace('/'); return; }
       try {
         const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
         const d = await r.json();
         if (d.user) { renderAuthUI(d.user, d.user.role); }
-        else { localStorage.removeItem('miz_token'); sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+        else { localStorage.removeItem('miz_token'); window.location.replace('/'); return; }
       } catch(_) {}
     }
     initAuth();
@@ -4587,7 +4587,7 @@ app.get('/private-watch', (req, res) => {
       try {
         const tok = localStorage.getItem('miz_token');
         const r = await fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } });
-        if (r.status === 401) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+        if (r.status === 401) { window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
         console.log('[PW] loadChannels: total channels =', allChannels.length);
@@ -4654,7 +4654,7 @@ app.get('/private-watch', (req, res) => {
         document.addEventListener('click', () => { const d = document.getElementById('user-drop'); if(d) d.classList.remove('open'); });
         document.getElementById('logout-btn').addEventListener('click', () => {
           localStorage.removeItem('miz_token'); localStorage.removeItem('miz_user');
-          localStorage.removeItem('miz_refresh'); sessionStorage.removeItem('miz_private_ok');
+          localStorage.removeItem('miz_refresh');
           window.location.replace('/');
         });
         const tok = localStorage.getItem('miz_token');
@@ -4693,12 +4693,12 @@ app.get('/private-watch', (req, res) => {
     }
     async function initAuth() {
       const token = localStorage.getItem('miz_token');
-      if (!token) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+      if (!token) { window.location.replace('/'); return; }
       try {
         const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
         const d = await r.json();
         if (d.user) { renderAuthUI(d.user, d.user.role); }
-        else { localStorage.removeItem('miz_token'); sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
+        else { localStorage.removeItem('miz_token'); window.location.replace('/'); return; }
       } catch(_) {}
     }
     initAuth().then(() => loadChannels());
