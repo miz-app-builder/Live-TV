@@ -1355,10 +1355,11 @@ app.get('/admin', async (req, res) => {
     .top-views{font-size:12px;color:#e00;font-weight:700}
     .search-bar{width:100%;background:#141414;border:1px solid #2a2a2a;border-radius:8px;padding:10px 16px;color:#ddd;font-size:13px;margin-bottom:14px;outline:none;transition:border-color .2s}
     .search-bar:focus{border-color:#e00}
-    .user-row{background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:5px;flex-wrap:wrap}
-    .u-email{font-size:13px;color:#ddd;font-weight:500;margin-bottom:4px;word-break:break-all}
+    .user-row{background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;margin-bottom:6px}
+    .u-email{font-size:13px;color:#ddd;font-weight:500;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
     .u-meta{font-size:11px;color:#555;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-    .u-actions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+    .u-actions{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+    .u-actions .act-btn{flex:1;min-width:70px;text-align:center;justify-content:center}
     .badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;display:inline-block}
     .badge-admin{background:#3a1a3a;color:#d9a}
     .badge-member{background:#1a1a2a;color:#77a}
@@ -1393,8 +1394,11 @@ app.get('/admin', async (req, res) => {
     .act-url{border-color:#3a2a1a;color:#fa0}
     .act-url:hover{background:#2a1a0a}
     .ch-list{display:flex;flex-direction:column;gap:5px}
-    .ch-row{background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;transition:border-color .15s;flex-wrap:wrap}
+    .ch-row{background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s;margin-bottom:5px}
     .ch-row:hover{border-color:#2a2a2a}
+    .ch-row-top{display:flex;align-items:center;gap:8px;min-width:0;width:100%}
+    .ch-row-btns{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%}
+    .ch-row-btns .act-btn{flex:1;min-width:60px;text-align:center}
     .ch-info{display:flex;align-items:center;gap:8px;min-width:0}
     .ch-id{font-size:11px;color:#444;width:30px;flex-shrink:0}
     .ch-name{font-size:13px;color:#ccc;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
@@ -1800,13 +1804,13 @@ app.get('/admin', async (req, res) => {
     if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:20px">কোনো user নেই।</div>'; return; }
     el.innerHTML = list.map(u => \`
       <div class="user-row">
-        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
-          <div class="u-avatar" style="background:\${_avColor(u.email)}">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;width:100%">
+          <div class="u-avatar" style="background:\${_avColor(u.email)};flex-shrink:0">
             \${_avInitial(u.email)}
             <span class="av-dot \${u.is_online ? 'online' : 'offline'}"></span>
           </div>
-          <div class="u-info" style="min-width:0">
-            <div class="u-email">\${u.email}</div>
+          <div style="min-width:0;flex:1">
+            <div class="u-email" title="\${u.email}">\${u.email}</div>
             <div class="u-meta">
               <span>Joined \${new Date(u.created_at).toLocaleDateString()}</span>
               <span class="badge badge-\${u.role}">\${u.role === 'admin' ? '⭐ Admin' : '👤 Member'}</span>
@@ -1915,21 +1919,21 @@ app.get('/admin', async (req, res) => {
     if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:20px">কোনো channel পাওয়া যায়নি।</div>'; return; }
     el.innerHTML = list.map(ch => \`
       <div class="ch-row" id="row-\${ch.id}">
-        <div class="ch-info">
+        <div class="ch-row-top">
           <span class="ch-id">#\${ch.id}</span>
           \${ch.is_highlighted ? '<span style="font-size:10px;font-weight:700;color:#fff;background:#e00;border-radius:4px;padding:2px 6px;flex-shrink:0;letter-spacing:.5px">🔴 LIVE</span>' : ''}
-          <span class="ch-name" title="\${ch.name}">\${ch.name}</span>
+          <span class="ch-name" title="\${ch.name}" style="flex:1">\${ch.name}</span>
           <span style="font-size:11px;color:#555;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:2px 6px;flex-shrink:0">\${CAT_EMOJI[ch.category]||'🌍'} \${ch.category||'?'}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-          <span class="badge \${ch.blocked ? 'badge-off' : 'badge-on'}" id="badge-\${ch.id}">\${ch.blocked ? '🚫 Blocked' : '✅ Visible'}</span>
-          <button class="act-btn \${ch.is_highlighted ? 'act-red' : 'act-green'}" id="hl-btn-\${ch.id}" onclick="toggleHighlight(\${ch.id})" title="\${ch.is_highlighted ? 'Remove from Live highlight' : 'Highlight as LIVE'}">\${ch.is_highlighted ? '🔴 Live ON' : '⭐ Highlight'}</button>
-          <button class="act-btn act-url" onclick="openEditModal(\${ch.id})">✏️ Edit</button>
-          <button class="act-btn act-red" onclick="deleteCh(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">🗑</button>
-          <label class="toggle \${ch.blocked ? 'blocked' : ''}">
+          <span class="badge \${ch.blocked ? 'badge-off' : 'badge-on'}" id="badge-\${ch.id}" style="flex-shrink:0">\${ch.blocked ? '🚫' : '✅'}</span>
+          <label class="toggle \${ch.blocked ? 'blocked' : ''}" style="flex-shrink:0">
             <input type="checkbox" \${ch.blocked ? '' : 'checked'} onchange="toggleCh(\${ch.id}, this)" />
             <span class="slider"></span>
           </label>
+        </div>
+        <div class="ch-row-btns">
+          <button class="act-btn \${ch.is_highlighted ? 'act-red' : 'act-green'}" id="hl-btn-\${ch.id}" onclick="toggleHighlight(\${ch.id})">\${ch.is_highlighted ? '🔴 Live ON' : '⭐ Highlight'}</button>
+          <button class="act-btn act-url" onclick="openEditModal(\${ch.id})">✏️ Edit</button>
+          <button class="act-btn act-red" onclick="deleteCh(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">🗑 Delete</button>
         </div>
       </div>
     \`).join('');
@@ -2142,16 +2146,16 @@ app.get('/admin', async (req, res) => {
     if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:24px">কোনো private channel নেই। ➕ Add করো।</div>'; return; }
     el.innerHTML = list.map(ch => \`
       <div class="ch-row" id="pc-row-\${ch.id}">
-        <div class="ch-info">
-          <span class="ch-name" title="\${ch.name}">\${ch.name}</span>
+        <div class="ch-row-top">
+          <span class="ch-name" title="\${ch.name}" style="flex:1">\${ch.name}</span>
           <span style="font-size:11px;color:#8af;background:#0a1a2a;border:1px solid #1a3a5a;border-radius:4px;padding:2px 8px;flex-shrink:0">🔒 \${ch.category}</span>
-          \${ch.description ? '<span style="font-size:11px;color:#555;margin-left:2px">' + ch.description + '</span>' : ''}
+          \${ch.description ? '<span style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">' + ch.description + '</span>' : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <div class="ch-row-btns">
           <button class="act-btn act-blue" onclick="openPcAccess(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}','\${ch.category}')">👥 Access</button>
           <button class="act-btn act-url" onclick="openPcEdit(\${ch.id})">✏️ Edit</button>
-          <button class="act-btn act-green" onclick="pcMakePublic(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">📺 Make Public</button>
-          <button class="act-btn act-red" onclick="pcDelete(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">🗑</button>
+          <button class="act-btn act-green" onclick="pcMakePublic(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">📺 Public</button>
+          <button class="act-btn act-red" onclick="pcDelete(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">🗑 Delete</button>
         </div>
       </div>
     \`).join('');
