@@ -1275,13 +1275,18 @@ app.get('/admin', async (req, res) => {
     .back-btn:hover{background:#2a2a2a}
     .container{max-width:960px;margin:0 auto;padding:24px 20px}
     .tabs{display:flex;gap:4px;margin-bottom:24px;background:#111;border:1px solid #1e1e1e;border-radius:10px;padding:4px}
-    .tab-btn{flex:1;background:none;border:none;color:#666;font-size:13px;font-weight:600;padding:9px 12px;border-radius:7px;cursor:pointer;transition:all .15s;white-space:nowrap}
-    .tab-btn:hover{color:#ccc}
-    .tab-btn.active{background:#1e1e1e;color:#fff}
+    .tab-btn{flex:1;background:none;border:none;color:#555;font-size:13px;font-weight:600;padding:9px 12px;border-radius:7px;cursor:pointer;transition:all .15s;white-space:nowrap;position:relative}
+    .tab-btn:hover{color:#ccc;background:#161616}
+    .tab-btn.active{background:#1e1e1e;color:#fff;box-shadow:inset 0 -2px 0 #e00}
     .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:24px}
-    .stat-card{background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px 18px}
-    .stat-card .num{font-size:28px;font-weight:700;color:#e00}
-    .stat-card .lbl{font-size:11px;color:#555;margin-top:4px}
+    .stat-card{background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px 18px;border-left:3px solid #e00;transition:border-color .15s,box-shadow .15s}
+    .stat-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.4);border-color:#2a2a2a;border-left-color:#e00}
+    .stat-card .num{font-size:30px;font-weight:800;color:#e00;line-height:1}
+    .stat-card .lbl{font-size:11px;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:.5px}
+    .u-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;position:relative}
+    .u-avatar .av-dot{position:absolute;bottom:0;right:0;width:10px;height:10px;border-radius:50%;border:2px solid #141414}
+    .u-avatar .av-dot.online{background:#33dd77;box-shadow:0 0 4px #33dd77}
+    .u-avatar .av-dot.offline{background:#444}
     .section-title{font-size:14px;font-weight:700;color:#888;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
     .top-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#141414;border:1px solid #1e1e1e;border-radius:8px;margin-bottom:5px}
     .top-rank{font-size:12px;color:#555;width:24px;flex-shrink:0}
@@ -1727,22 +1732,27 @@ app.get('/admin', async (req, res) => {
     if (s < 86400) return Math.floor(s/3600) + 'h ago';
     return Math.floor(s/86400) + 'd ago';
   }
+  function _avColor(email) { const c=['#c0392b','#8e44ad','#2980b9','#16a085','#d35400','#1a5276','#6c3483','#1e8449']; let h=0; for(let i=0;i<email.length;i++) h=(h*31+email.charCodeAt(i))&0xffff; return c[h%c.length]; }
+  function _avInitial(email) { return (email||'?')[0].toUpperCase(); }
   function renderUsers(list) {
     const el = document.getElementById('users-list');
     if (!list.length) { el.innerHTML = '<div style="color:#444;text-align:center;padding:20px">কোনো user নেই।</div>'; return; }
     el.innerHTML = list.map(u => \`
       <div class="user-row">
-        <div class="u-info">
-          <div class="u-email" style="display:flex;align-items:center;gap:7px">
-            <span class="online-dot \${u.is_online ? 'online' : 'offline'}" title="\${u.is_online ? 'Online' : (u.last_seen ? 'Last seen ' + timeSince(u.last_seen) : 'Offline')}"></span>
-            \${u.email}
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+          <div class="u-avatar" style="background:\${_avColor(u.email)}">
+            \${_avInitial(u.email)}
+            <span class="av-dot \${u.is_online ? 'online' : 'offline'}"></span>
           </div>
-          <div class="u-meta">
-            <span>Joined \${new Date(u.created_at).toLocaleDateString()}</span>
-            <span class="badge badge-\${u.role}">\${u.role === 'admin' ? '⭐ Admin' : '👤 Member'}</span>
-            \${u.banned ? '<span class="badge badge-banned">🚫 Banned</span>' : ''}
-            \${u.is_online ? '<span style="font-size:11px;color:#3f3;font-weight:600">🟢 Online</span>' : (u.last_seen ? '<span style="font-size:11px;color:#666">⚫ ' + timeSince(u.last_seen) + '</span>' : '')}
-            \${u.watching_channel ? '<span style="font-size:11px;color:#e88;font-weight:600">📺 ' + u.watching_channel.name + '</span>' : ''}
+          <div class="u-info" style="min-width:0">
+            <div class="u-email">\${u.email}</div>
+            <div class="u-meta">
+              <span>Joined \${new Date(u.created_at).toLocaleDateString()}</span>
+              <span class="badge badge-\${u.role}">\${u.role === 'admin' ? '⭐ Admin' : '👤 Member'}</span>
+              \${u.banned ? '<span class="badge badge-banned">🚫 Banned</span>' : ''}
+              \${u.is_online ? '<span style="font-size:11px;color:#3f3;font-weight:600">🟢 Online</span>' : (u.last_seen ? '<span style="font-size:11px;color:#666">⚫ ' + timeSince(u.last_seen) + '</span>' : '')}
+              \${u.watching_channel ? '<span style="font-size:11px;color:#e88;font-weight:600">📺 ' + u.watching_channel.name + '</span>' : ''}
+            </div>
           </div>
         </div>
         <div class="u-actions">
@@ -2330,28 +2340,34 @@ app.get('/', (req, res) => {
     }
     .grid-card {
       background: #141414; border: 1px solid #1e1e1e;
-      border-radius: 10px; padding: 14px 10px 12px;
+      border-radius: 12px; padding: 16px 10px 13px;
       display: flex; flex-direction: column; align-items: center; gap: 10px;
-      cursor: pointer; transition: border-color .15s, background .15s, transform .1s;
-      text-align: center;
+      cursor: pointer; transition: border-color .2s, background .2s, transform .15s, box-shadow .2s;
+      text-align: center; position: relative;
     }
-    .grid-card:hover { background: #1c1c1c; border-color: #e00; transform: translateY(-2px); }
+    .grid-card:hover { background: #1c1c1c; border-color: #e00; transform: translateY(-3px); box-shadow: 0 6px 22px rgba(220,0,0,.18); }
     .grid-logo {
-      width: 52px; height: 52px; border-radius: 50%;
+      width: 56px; height: 56px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 800; color: #fff;
+      font-size: 16px; font-weight: 800; color: #fff;
       flex-shrink: 0; letter-spacing: .5px;
     }
     .grid-logo-img {
-      width: 52px; height: 52px; border-radius: 50%;
+      width: 56px; height: 56px; border-radius: 50%;
       object-fit: contain; background: #1e1e1e; flex-shrink: 0;
     }
     .grid-name {
-      font-size: 11px; font-weight: 500; color: #ccc;
+      font-size: 11px; font-weight: 600; color: #ccc;
       line-height: 1.3; word-break: break-word;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
+    .grid-status-dot {
+      position: absolute; top: 10px; right: 10px;
+      width: 9px; height: 9px; border-radius: 50%; border: 2px solid #141414;
+    }
+    .grid-status-dot.online  { background: #33dd77; box-shadow: 0 0 5px #33dd77; }
+    .grid-status-dot.offline { background: #444; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
     /* ── LIVE NOW section ── */
     #live-section {
@@ -2398,8 +2414,14 @@ app.get('/', (req, res) => {
       letter-spacing: .8px; border-radius: 4px; padding: 2px 5px;
       line-height: 1.4;
     }
+    /* Category pills */
+    .cat-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .cat-pill { background:#141414; border:1px solid #1e1e1e; border-radius:20px; padding:7px 15px; color:#666; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap; outline:none; }
+    .cat-pill:hover { border-color:#444; color:#ccc; background:#1c1c1c; }
+    .cat-pill.active { background:#e00; border-color:#e00; color:#fff; box-shadow:0 2px 10px rgba(220,0,0,.35); }
+    /* Country filter */
     .filter-bar {
-      display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
+      display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
     }
     .filter-select {
       background: #141414; border: 1px solid #2a2a2a;
@@ -2474,8 +2496,8 @@ app.get('/', (req, res) => {
   </div>
   <div id="grid-view">
     <input class="grid-search" id="grid-search" type="text" placeholder="🔍  Search channels..." autocomplete="off" />
+    <div id="cat-pills" class="cat-pills"></div>
     <div class="filter-bar">
-      <select class="filter-select" id="cat-select"></select>
       <select class="filter-select" id="country-select"></select>
     </div>
     <div class="grid-header">
@@ -2571,6 +2593,10 @@ app.get('/', (req, res) => {
       list.forEach(ch => {
         const card = document.createElement('div');
         card.className = 'grid-card';
+        const dot = document.createElement('span');
+        dot.className = 'grid-status-dot ' + (ch.status === 'Online' ? 'online' : 'offline');
+        dot.title = ch.status || 'Unknown';
+        card.appendChild(dot);
         const fallback = document.createElement('div');
         fallback.className = 'grid-logo';
         fallback.style.background = logoColor(ch.channel_name);
@@ -2650,23 +2676,25 @@ app.get('/', (req, res) => {
     }
 
     function buildCategoryTabs() {
-      const sel = document.getElementById('cat-select');
-      if (!sel) return;
-      sel.innerHTML = '';
+      const container = document.getElementById('cat-pills');
+      if (!container) return;
+      container.innerHTML = '';
       CATEGORIES.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat.key;
-        opt.textContent = cat.label;
-        if (cat.key === 'All') opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener('change', () => {
-        activeCategory = sel.value;
-        activeCountry = 'All';
-        const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => categorize(c.channel_name) === activeCategory);
-        buildCountrySelect(catFiltered);
-        updateCatLabel();
-        renderGrid(getFiltered());
+        const btn = document.createElement('button');
+        btn.className = 'cat-pill' + (cat.key === 'All' ? ' active' : '');
+        btn.dataset.cat = cat.key;
+        btn.textContent = cat.label;
+        btn.addEventListener('click', () => {
+          container.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeCategory = cat.key;
+          activeCountry = 'All';
+          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => categorize(c.channel_name) === activeCategory);
+          buildCountrySelect(catFiltered);
+          updateCatLabel();
+          renderGrid(getFiltered());
+        });
+        container.appendChild(btn);
       });
     }
 
@@ -2936,31 +2964,43 @@ app.get('/private-tv', (req, res) => {
     }
     .grid-card {
       background: #141414; border: 1px solid #1e1e1e;
-      border-radius: 10px; padding: 14px 10px 12px;
+      border-radius: 12px; padding: 16px 10px 13px;
       display: flex; flex-direction: column; align-items: center; gap: 10px;
-      cursor: pointer; transition: border-color .15s, background .15s, transform .1s;
-      text-align: center;
+      cursor: pointer; transition: border-color .2s, background .2s, transform .15s, box-shadow .2s;
+      text-align: center; position: relative;
     }
-    .grid-card:hover { background: #1c1c1c; border-color: #e00; transform: translateY(-2px); }
+    .grid-card:hover { background: #1c1c1c; border-color: #e00; transform: translateY(-3px); box-shadow: 0 6px 22px rgba(220,0,0,.18); }
     .grid-logo {
-      width: 52px; height: 52px; border-radius: 50%;
+      width: 56px; height: 56px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 800; color: #fff;
+      font-size: 16px; font-weight: 800; color: #fff;
       flex-shrink: 0; letter-spacing: .5px;
     }
     .grid-logo-img {
-      width: 52px; height: 52px; border-radius: 50%;
+      width: 56px; height: 56px; border-radius: 50%;
       object-fit: contain; background: #1e1e1e; flex-shrink: 0;
     }
     .grid-name {
-      font-size: 11px; font-weight: 500; color: #ccc;
+      font-size: 11px; font-weight: 600; color: #ccc;
       line-height: 1.3; word-break: break-word;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
+    .grid-status-dot {
+      position: absolute; top: 10px; right: 10px;
+      width: 9px; height: 9px; border-radius: 50%; border: 2px solid #141414;
+    }
+    .grid-status-dot.online  { background: #33dd77; box-shadow: 0 0 5px #33dd77; }
+    .grid-status-dot.offline { background: #444; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
+    /* Category pills */
+    .cat-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .cat-pill { background:#141414; border:1px solid #1e1e1e; border-radius:20px; padding:7px 15px; color:#666; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap; outline:none; }
+    .cat-pill:hover { border-color:#444; color:#ccc; background:#1c1c1c; }
+    .cat-pill.active { background:#e00; border-color:#e00; color:#fff; box-shadow:0 2px 10px rgba(220,0,0,.35); }
+    /* Country filter */
     .filter-bar {
-      display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
+      display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
     }
     .filter-select {
       background: #141414; border: 1px solid #2a2a2a;
@@ -3001,8 +3041,8 @@ app.get('/private-tv', (req, res) => {
   </header>
   <div id="grid-view">
     <input class="grid-search" id="grid-search" type="text" placeholder="🔍  Search channels..." autocomplete="off" />
+    <div id="cat-pills" class="cat-pills"></div>
     <div class="filter-bar">
-      <select class="filter-select" id="cat-select"></select>
       <select class="filter-select" id="country-select"></select>
     </div>
     <div class="grid-header">
@@ -4319,21 +4359,24 @@ app.get('/watch', (req, res) => {
     .channel-item {
       display: flex; align-items: center; justify-content: space-between;
       background: #141414; border: 1px solid #1e1e1e;
-      border-radius: 7px; padding: 10px 14px;
-      cursor: pointer; transition: border-color .15s, background .15s;
+      border-radius: 8px; padding: 9px 12px;
+      cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s;
+      border-left: 3px solid transparent;
     }
-    .channel-item:hover { background: #1c1c1c; border-color: #c00; }
-    .channel-item.active { background: #1a0000; border-color: #e00; }
-    .channel-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .ch-number { font-size: 11px; font-weight: 700; color: #444; min-width: 26px; flex-shrink: 0; }
+    .channel-item:hover { background: #1c1c1c; border-color: #333; border-left-color: #c00; }
+    .channel-item.active { background: #1a0000; border-color: #e00; border-left-color: #e00; box-shadow: 0 0 10px rgba(220,0,0,.12); }
+    .channel-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .ch-logo-thumb { width: 30px; height: 30px; border-radius: 50%; object-fit: contain; background: #1e1e1e; flex-shrink: 0; }
+    .ch-logo-fb { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; }
+    .ch-number { font-size: 10px; font-weight: 700; color: #444; min-width: 22px; flex-shrink: 0; }
     .ch-name { font-size: 13px; font-weight: 500; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ch-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .ch-right { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
     .ch-badge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: .5px; }
     .ch-badge.online  { background:#1a3a1a; color:#4c4; border:1px solid #2a5a2a; }
     .ch-badge.offline { background:#3a1a1a; color:#c44; border:1px solid #5a2a2a; }
     .play-btn {
       background: #e00; color: #fff; border: none;
-      border-radius: 5px; padding: 5px 12px;
+      border-radius: 5px; padding: 5px 11px;
       font-size: 11px; font-weight: 700; cursor: pointer;
       transition: background .15s; white-space: nowrap;
     }
@@ -5207,6 +5250,10 @@ app.get('/watch', (req, res) => {
     }
 
     /* ── renderChannels ──────────────────────── */
+    const LOGO_COLORS_W = ['#c0392b','#8e44ad','#2980b9','#16a085','#d35400','#1a5276','#6c3483','#1e8449'];
+    function _wLogoColor(name) { let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))&0xffff; return LOGO_COLORS_W[h%LOGO_COLORS_W.length]; }
+    function _wInitials(name) { return name.split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?'; }
+
     function renderChannels(list) {
       channelList.innerHTML = '';
       if (!list.length) {
@@ -5223,7 +5270,8 @@ app.get('/watch', (req, res) => {
         const favActive = favs.includes(ch.id);
         item.innerHTML =
           '<div class="channel-left">' +
-            '<span class="ch-number">' + ch.id + '</span>' +
+            '<img class="ch-logo-thumb" data-chid="' + ch.id + '" alt="" />' +
+            '<div class="ch-logo-fb" data-fbid="' + ch.id + '" style="background:' + _wLogoColor(ch.channel_name) + ';display:none">' + _wInitials(ch.channel_name) + '</div>' +
             '<span class="ch-name">' + ch.channel_name + '</span>' +
             hdBadge +
           '</div>' +
@@ -5232,6 +5280,14 @@ app.get('/watch', (req, res) => {
             '<span class="ch-badge ' + (ch.status==='Online'?'online':'offline') + '">' + ch.status + '</span>' +
             '<button class="play-btn">&#9654;</button>' +
           '</div>';
+        const imgEl = item.querySelector('.ch-logo-thumb');
+        const fbEl  = item.querySelector('.ch-logo-fb');
+        if (ch.logo) {
+          imgEl.src = ch.logo;
+          imgEl.onerror = () => { imgEl.style.display='none'; fbEl.style.display='flex'; };
+        } else {
+          imgEl.style.display = 'none'; fbEl.style.display = 'flex';
+        }
         const switchChannel = () => {
           history.pushState({ chId: ch.id }, '', '/watch?ch=' + ch.id);
           playStream(ch);
