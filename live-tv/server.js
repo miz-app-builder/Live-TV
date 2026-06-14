@@ -1400,7 +1400,7 @@ app.get('/api/user/private-channels', async (req, res) => {
     const conditions = [];
     if (channelIds.length > 0) conditions.push(`id.in.(${channelIds.join(',')})`);
     if (categories.length > 0) conditions.push(`category.in.(${categories.map(c => '"' + c + '"').join(',')})`);
-    const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(',')).order('name', { ascending: true });
+    const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(',')).order('name', { ascending: true }).order('id', { ascending: true });
     if (error) throw error;
     const pcStatusMapM = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
     const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapM.get(ch.id) || ch.status || 'Offline' }));
@@ -3497,7 +3497,7 @@ app.get('/private-tv', (req, res) => {
         nameEl.className = 'grid-name';
         nameEl.textContent = ch.name;
         card.appendChild(nameEl);
-        card.addEventListener('click', () => { window.location.href = '/private-watch?ch=' + ch.id; });
+        card.addEventListener('click', () => { console.log('[PTV] clicking channel id=' + ch.id + ' type=' + typeof ch.id + ' name=' + ch.name); window.location.href = '/private-watch?ch=' + ch.id; });
         frag.appendChild(card);
       });
       gridChannels.appendChild(frag);
@@ -4590,12 +4590,16 @@ app.get('/private-watch', (req, res) => {
         if (r.status === 401) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
+        console.log('[PW] loadChannels: total channels =', allChannels.length);
         renderRecent();
         applyFilter();
         const urlChStr = new URLSearchParams(window.location.search).get('ch');
+        console.log('[PW] urlChStr =', urlChStr, '| first channel id =', allChannels[0] && allChannels[0].id, '| type =', allChannels[0] && typeof allChannels[0].id);
         if (urlChStr) {
           const ch = allChannels.find(c => String(c.id) === urlChStr);
+          console.log('[PW] channel found?', !!ch, ch && ch.name, '| stream_url =', ch && (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url));
           if (ch) { playStream(ch); return; }
+          console.warn('[PW] channel NOT found — redirect to private-tv');
         }
         /* Resume watching */
         const lastId = localStorage.getItem('miz_last_priv_ch');
@@ -4619,6 +4623,7 @@ app.get('/private-watch', (req, res) => {
         }
         window.location.href = '/private-tv';
       } catch(e) {
+        console.error('[PW] loadChannels error:', e);
         channelList.innerHTML = '<div style="color:#a33;font-size:13px;padding:14px;">Failed to load channels.</div>';
       }
     }
