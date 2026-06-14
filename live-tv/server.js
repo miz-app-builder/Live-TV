@@ -1400,7 +1400,7 @@ app.get('/api/user/private-channels', async (req, res) => {
     const conditions = [];
     if (channelIds.length > 0) conditions.push(`id.in.(${channelIds.join(',')})`);
     if (categories.length > 0) conditions.push(`category.in.(${categories.map(c => '"' + c + '"').join(',')})`);
-    const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(','));
+    const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(',')).order('name', { ascending: true });
     if (error) throw error;
     const pcStatusMapM = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
     const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapM.get(ch.id) || ch.status || 'Offline' }));
@@ -3541,24 +3541,26 @@ app.get('/private-tv', (req, res) => {
     }
 
     function buildCategoryTabs(list) {
-      const sel = document.getElementById('cat-select');
-      if (!sel) return;
-      sel.innerHTML = '';
-      const all = { key: 'All', label: '🔍 All Categories' };
-      const cats = [all, ...getCategories(list).map(c => ({ key: c, label: c }))];
+      const pillsEl = document.getElementById('cat-pills');
+      if (!pillsEl) return;
+      pillsEl.innerHTML = '';
+      const cats = ['All', ...getCategories(list)];
       cats.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat.key; opt.textContent = cat.label;
-        if (cat.key === 'All') opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener('change', () => {
-        activeCategory = sel.value;
-        activeCountry = 'All';
-        document.getElementById('grid-cat-label').textContent = activeCategory === 'All' ? 'CHANNELS' : activeCategory.toUpperCase();
-        const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => c.category === activeCategory);
-        buildCountrySelect(catFiltered);
-        renderGrid(getFiltered());
+        const btn = document.createElement('button');
+        btn.className = 'cat-pill' + (cat === 'All' ? ' active' : '');
+        btn.textContent = cat === 'All' ? '\uD83D\uDD0D All' : cat;
+        btn.dataset.cat = cat;
+        btn.addEventListener('click', () => {
+          pillsEl.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeCategory = cat;
+          activeCountry = 'All';
+          document.getElementById('grid-cat-label').textContent = activeCategory === 'All' ? 'CHANNELS' : activeCategory.toUpperCase();
+          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => c.category === activeCategory);
+          buildCountrySelect(catFiltered);
+          renderGrid(getFiltered());
+        });
+        pillsEl.appendChild(btn);
       });
     }
 
@@ -3848,6 +3850,26 @@ app.get('/private-watch', (req, res) => {
     }
     .play-btn:hover { background: #c00; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
+    .ch-logo-thumb { width: 32px; height: 32px; border-radius: 50%; object-fit: contain; background: #1e1e1e; flex-shrink: 0; }
+    .ch-logo-fb { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; }
+    .fav-btn { background: none; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px; line-height: 1; opacity: 0.5; transition: opacity .15s; flex-shrink: 0; }
+    .fav-btn:hover, .fav-btn.active { opacity: 1; }
+    .ch-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; flex-shrink: 0; white-space: nowrap; }
+    .ch-badge.online { background: rgba(40,180,80,.15); color: #4d4; }
+    .ch-badge.offline { background: rgba(100,40,40,.2); color: #955; }
+    .hd-badge { font-size: 9px; font-weight: 800; background: #1a3a1a; color: #4d4; border: 1px solid #2d6b2d; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+    .resume-bar { display:none; width:100%; background:#141414; border:1px solid #2a2a2a; border-radius:8px; padding:10px 14px; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    .resume-bar.show { display:flex; }
+    #resume-label { font-size:13px; color:#ccc; }
+    #resume-yes { background:#e00; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; }
+    #resume-yes:hover { background:#c00; }
+    #resume-dismiss { background:none; border:1px solid #333; color:#666; border-radius:5px; padding:5px 10px; font-size:12px; cursor:pointer; }
+    #resume-dismiss:hover { border-color:#666; color:#aaa; }
+    .recent-section { width:100%; margin-bottom:8px; }
+    .recent-label { font-size:11px; font-weight:700; color:#444; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+    .recent-row { display:flex; gap:6px; flex-wrap:wrap; }
+    .recent-chip { background:#141414; border:1px solid #2a2a2a; border-radius:20px; padding:5px 13px; font-size:11px; color:#888; cursor:pointer; transition:all .15s; white-space:nowrap; }
+    .recent-chip:hover { border-color:#e00; color:#ddd; background:#1c1c1c; }
     .auth-btn {
       background: #1a1a1a; color: #ccc; border: 1px solid #333;
       border-radius: 8px; padding: 7px 13px; font-size: 12px; font-weight: 600;
@@ -3944,6 +3966,17 @@ app.get('/private-watch', (req, res) => {
       </div>
     </div>
     <input class="search-bar" id="search" type="text" placeholder="&#128269;  Search channels..." autocomplete="off" />
+    <div id="resume-bar" class="resume-bar">
+      <span id="resume-label">&#128250; Resume watching?</span>
+      <div style="display:flex;gap:6px">
+        <button id="resume-yes">&#9654; Resume</button>
+        <button id="resume-dismiss">&#10005;</button>
+      </div>
+    </div>
+    <div class="recent-section" id="recent-section" style="display:none">
+      <div class="recent-label">&#128336; Recently Watched</div>
+      <div class="recent-row" id="recent-row"></div>
+    </div>
     <div class="channel-list" id="channel-list">
       <div style="color:#444;font-size:13px;padding:14px;">Loading channels...</div>
     </div>
@@ -4417,7 +4450,7 @@ app.get('/private-watch', (req, res) => {
     function playStream(channel) {
       activeId = channel.id;
       document.querySelectorAll('.channel-item').forEach(el => {
-        el.classList.toggle('active', parseInt(el.dataset.id) === channel.id);
+        el.classList.toggle('active', String(el.dataset.id) === String(channel.id));
       });
       currentServers = channel.servers && channel.servers.length > 0
         ? channel.servers
@@ -4426,7 +4459,60 @@ app.get('/private-watch', (req, res) => {
       renderServerBar();
       playFromUrl(currentServers[0].url);
       if (typeof window._startViewerTracking === 'function') window._startViewerTracking(channel.id, channel.name || channel.channel_name || null);
+      saveRecent(channel);
+      localStorage.setItem('miz_last_priv_ch', String(channel.id));
+      renderRecent();
     }
+
+    /* ── Favourites ── */
+    function getFavs() { try { return JSON.parse(localStorage.getItem('miz_priv_favorites')||'[]'); } catch(e) { return []; } }
+    function saveFavs(a) { localStorage.setItem('miz_priv_favorites', JSON.stringify(a)); }
+    function isFav(id) { return getFavs().includes(String(id)); }
+    function toggleFav(id, ev) {
+      if (ev) ev.stopPropagation();
+      const favs = getFavs();
+      const key = String(id);
+      const idx = favs.indexOf(key);
+      if (idx >= 0) favs.splice(idx, 1); else favs.push(key);
+      saveFavs(favs);
+      document.querySelectorAll('.fav-btn[data-id="' + id + '"]').forEach(b => {
+        b.textContent = favs.includes(key) ? '\u2764\uFE0F' : '\uD83E\uDD0D';
+        b.classList.toggle('active', favs.includes(key));
+      });
+    }
+
+    /* ── Recently Watched ── */
+    const RECENT_KEY_P = 'miz_priv_recent';
+    function getRecent() { try { return JSON.parse(localStorage.getItem(RECENT_KEY_P)||'[]'); } catch(e) { return []; } }
+    function saveRecent(ch) {
+      let r = getRecent().filter(x => String(x.id) !== String(ch.id));
+      r.unshift({ id: String(ch.id), name: ch.name || ch.channel_name || '' });
+      if (r.length > 10) r = r.slice(0, 10);
+      localStorage.setItem(RECENT_KEY_P, JSON.stringify(r));
+    }
+    function renderRecent() {
+      const recentSec = document.getElementById('recent-section');
+      const recentRow = document.getElementById('recent-row');
+      if (!recentSec || !recentRow) return;
+      const r = getRecent();
+      if (!r.length) { recentSec.style.display = 'none'; return; }
+      recentSec.style.display = '';
+      recentRow.innerHTML = r.map(c =>
+        '<div class="recent-chip" data-id="' + c.id + '">' + c.name + '</div>'
+      ).join('');
+      recentRow.querySelectorAll('.recent-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const ch = allChannels.find(x => String(x.id) === chip.dataset.id);
+          if (ch) { history.pushState({ chId: ch.id }, '', '/private-watch?ch=' + ch.id); playStream(ch); }
+        });
+      });
+    }
+
+    /* ── Logo / HD helpers ── */
+    const _P_LOGO_COLORS = ['#c0392b','#8e44ad','#2980b9','#16a085','#d35400','#1a5276','#6c3483','#1e8449'];
+    function _pLogoColor(name) { let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))&0xffff; return _P_LOGO_COLORS[h%_P_LOGO_COLORS.length]; }
+    function _pInitials(name) { return (name||'?').split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?'; }
+    function isHD_p(name) { return /\b(HD|FHD|4K|1080[pi]?|720p)\b/i.test(name||''); }
 
     function renderChannels(list) {
       channelList.innerHTML = '';
@@ -4435,23 +4521,39 @@ app.get('/private-watch', (req, res) => {
         return;
       }
       const frag = document.createDocumentFragment();
-      list.forEach((ch, idx) => {
-        const isFailed = failedIds.has(ch.id) || isGeoName(ch.name || '');
+      const favs = getFavs();
+      list.forEach(ch => {
+        const isFailed = failedIds.has(String(ch.id)) || isGeoName(ch.name || '');
         const item = document.createElement('div');
-        item.className = 'channel-item' + (ch.id === activeId ? ' active' : '') + (isFailed ? ' ch-failed' : '');
+        item.className = 'channel-item' + (String(ch.id) === String(activeId) ? ' active' : '') + (isFailed ? ' ch-failed' : '');
         item.dataset.id = ch.id;
+        const hdBadge = isHD_p(ch.name) ? '<span class="hd-badge">HD</span>' : '';
+        const favActive = favs.includes(String(ch.id));
         item.innerHTML =
           '<div class="channel-left">' +
-            '<span class="ch-number">' + (idx + 1) + '</span>' +
-            '<span class="ch-name">' + ch.name + '</span>' +
+            '<img class="ch-logo-thumb" alt="" />' +
+            '<div class="ch-logo-fb" style="background:' + _pLogoColor(ch.name || '?') + ';display:none">' + _pInitials(ch.name) + '</div>' +
+            '<span class="ch-name">' + (ch.name || '') + '</span>' +
+            hdBadge +
           '</div>' +
           '<div class="ch-right">' +
+            '<button class="fav-btn' + (favActive?' active':'') + '" data-id="' + ch.id + '" title="Favourite">' + (favActive?'\u2764\uFE0F':'\uD83E\uDD0D') + '</button>' +
+            '<span class="ch-badge ' + (ch.status==='Online'?'online':'offline') + '">' + (ch.status||'') + '</span>' +
             '<button class="play-btn">&#9654;</button>' +
           '</div>';
+        const imgEl = item.querySelector('.ch-logo-thumb');
+        const fbEl  = item.querySelector('.ch-logo-fb');
+        if (ch.logo) {
+          imgEl.src = ch.logo;
+          imgEl.onerror = () => { imgEl.style.display='none'; fbEl.style.display='flex'; };
+        } else {
+          imgEl.style.display = 'none'; fbEl.style.display = 'flex';
+        }
         const switchChannel = () => {
           history.pushState({ chId: ch.id }, '', '/private-watch?ch=' + ch.id);
           playStream(ch);
         };
+        item.querySelector('.fav-btn').addEventListener('click', e => toggleFav(ch.id, e));
         item.querySelector('.play-btn').addEventListener('click', e => { e.stopPropagation(); switchChannel(); });
         item.addEventListener('click', switchChannel);
         frag.appendChild(item);
@@ -4462,7 +4564,7 @@ app.get('/private-watch', (req, res) => {
     function applyFilter() {
       const q = searchInput.value.toLowerCase().trim();
       let list = q ? allChannels.filter(c => (c.name || '').toLowerCase().includes(q)) : allChannels;
-      if (hideUnavailable) list = list.filter(c => !failedIds.has(c.id) && !isGeoName(c.name || ''));
+      if (hideUnavailable) list = list.filter(c => !failedIds.has(String(c.id)) && !isGeoName(c.name || ''));
       chCount.textContent = list.length + ' channels';
       renderChannels(list);
     }
@@ -4470,11 +4572,11 @@ app.get('/private-watch', (req, res) => {
     searchInput.addEventListener('input', applyFilter);
 
     window.addEventListener('popstate', (e) => {
-      const id = e.state && e.state.chId
-        ? e.state.chId
-        : parseInt(new URLSearchParams(window.location.search).get('ch'));
-      if (id) {
-        const ch = allChannels.find(c => c.id === id);
+      const idStr = e.state && e.state.chId
+        ? String(e.state.chId)
+        : new URLSearchParams(window.location.search).get('ch');
+      if (idStr) {
+        const ch = allChannels.find(c => String(c.id) === idStr);
         if (ch) playStream(ch);
       } else {
         window.location.href = '/private-tv';
@@ -4488,11 +4590,32 @@ app.get('/private-watch', (req, res) => {
         if (r.status === 401) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
+        renderRecent();
         applyFilter();
-        const urlChId = parseInt(new URLSearchParams(window.location.search).get('ch'));
-        if (urlChId) {
-          const ch = allChannels.find(c => c.id === urlChId);
+        const urlChStr = new URLSearchParams(window.location.search).get('ch');
+        if (urlChStr) {
+          const ch = allChannels.find(c => String(c.id) === urlChStr);
           if (ch) { playStream(ch); return; }
+        }
+        /* Resume watching */
+        const lastId = localStorage.getItem('miz_last_priv_ch');
+        if (lastId) {
+          const lastCh = allChannels.find(c => String(c.id) === lastId);
+          if (lastCh) {
+            const resumeBar = document.getElementById('resume-bar');
+            const resumeLabel = document.getElementById('resume-label');
+            if (resumeBar && resumeLabel) {
+              resumeLabel.textContent = '\uD83D\uDCFA Resume: ' + (lastCh.name || '') + '?';
+              resumeBar.classList.add('show');
+              document.getElementById('resume-yes').onclick = () => {
+                resumeBar.classList.remove('show');
+                history.pushState({ chId: lastCh.id }, '', '/private-watch?ch=' + lastCh.id);
+                playStream(lastCh);
+              };
+              document.getElementById('resume-dismiss').onclick = () => resumeBar.classList.remove('show');
+              return;
+            }
+          }
         }
         window.location.href = '/private-tv';
       } catch(e) {
