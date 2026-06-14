@@ -644,6 +644,13 @@ app.post('/api/track/heartbeat', async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── Presence ping (logged-in users browsing, no channel) ── */
+app.post('/api/track/presence', async (req, res) => {
+  const authUser = await verifyUser(req);
+  if (authUser) activeUsers.set(authUser.id, Date.now());
+  res.json({ ok: !!authUser });
+});
+
 /* ── Admin: live viewer count for a channel ─────────────── */
 app.get('/api/admin/viewers/:chId', async (req, res) => {
   const user = await verifyUser(req);
@@ -1736,17 +1743,34 @@ app.get('/admin', async (req, res) => {
   if (!token) window.location.href = '/login';
 
   let tabLoaded = {};
+  let _activeTab = 'dashboard';
+  let _autoRefreshTimer = null;
+
+  function startAutoRefresh(tab) {
+    clearInterval(_autoRefreshTimer);
+    if (tab === 'dashboard') {
+      _autoRefreshTimer = setInterval(() => loadDashboard(), 20000);
+    } else if (tab === 'users') {
+      _autoRefreshTimer = setInterval(() => { tabLoaded.users = false; loadUsers(); }, 30000);
+    } else {
+      _autoRefreshTimer = null;
+    }
+  }
+
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
       btn.classList.add('active');
+      _activeTab = btn.dataset.tab;
       document.getElementById('tab-' + btn.dataset.tab).hidden = false;
       if (!tabLoaded[btn.dataset.tab]) { tabLoaded[btn.dataset.tab] = true; loadTab(btn.dataset.tab); }
+      startAutoRefresh(btn.dataset.tab);
     });
   });
   tabLoaded['dashboard'] = true;
   loadTab('dashboard');
+  startAutoRefresh('dashboard');
 
   function loadTab(t) {
     if (t === 'dashboard') loadDashboard();
@@ -2880,6 +2904,12 @@ app.get('/', (req, res) => {
         } catch(_) {}
       }
       renderAuthUI(user, role);
+      if (user) {
+        const tok = localStorage.getItem('miz_token');
+        function sendPresence() { fetch('/api/track/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + tok } }).catch(()=>{}); }
+        sendPresence();
+        setInterval(sendPresence, 60000);
+      }
     }
     initAuth();
     loadChannels();
