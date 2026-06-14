@@ -70,11 +70,27 @@ function _checkStreamUrl(url) {
     try {
       const mod = url.startsWith('https') ? https : http;
       const timer = setTimeout(() => { try { req.destroy(); } catch(_) {} resolve(false); }, HEALTH_TIMEOUT_MS);
-      const req = mod.request(url, { method: 'HEAD', timeout: HEALTH_TIMEOUT_MS,
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } }, res => {
+      const req = mod.request(url, { method: 'GET', timeout: HEALTH_TIMEOUT_MS,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Range': 'bytes=0-511' } }, res => {
         clearTimeout(timer);
-        req.destroy();
-        resolve(res.statusCode >= 200 && res.statusCode < 400);
+        if (res.statusCode < 200 || res.statusCode >= 400) { req.destroy(); resolve(false); return; }
+        let buf = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => {
+          buf += chunk;
+          if (buf.length >= 64) { req.destroy(); }
+        });
+        res.on('close', () => {
+          const trimmed = buf.trimStart();
+          if (trimmed.startsWith('#EXTM3U') || trimmed.startsWith('#EXT-X')) {
+            resolve(true);
+          } else if (buf.length > 0 && !url.toLowerCase().includes('.m3u8')) {
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        });
+        res.on('error', () => resolve(false));
       });
       req.on('error', () => { clearTimeout(timer); resolve(false); });
       req.on('timeout', () => { clearTimeout(timer); req.destroy(); resolve(false); });
