@@ -4590,6 +4590,8 @@ app.get('/private-watch', (req, res) => {
         if (r.status === 401) { window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
+        const dbg = document.getElementById('_dbg');
+        if (dbg) dbg.textContent = 'API OK: ' + allChannels.length + ' groups | firstId=' + (allChannels[0] && allChannels[0].id);
         console.log('[PW] loadChannels: total channels =', allChannels.length);
         renderRecent();
         applyFilter();
@@ -4599,13 +4601,12 @@ app.get('/private-watch', (req, res) => {
           const ch = allChannels.find(c => String(c.id) === urlChStr);
           console.log('[PW] channel found?', !!ch, ch && ch.name, '| stream_url =', ch && (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url));
           if (ch) {
-            const dbg = document.getElementById('_dbg');
-            if (dbg) dbg.textContent = 'Found: ' + ch.name + ' | URL: ' + (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url || '(none)').slice(0,60);
+            if (dbg) dbg.textContent = 'FOUND ch=' + urlChStr + ': ' + ch.name + ' | URL: ' + (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url || '(none)').slice(0,60);
             playStream(ch); return;
           }
-          const dbg = document.getElementById('_dbg');
-          if (dbg) dbg.textContent = 'CH ' + urlChStr + ' NOT found in ' + allChannels.length + ' groups. firstId=' + (allChannels[0] && allChannels[0].id);
-          console.warn('[PW] channel NOT found — redirect to private-tv');
+          if (dbg) dbg.textContent = 'NOT FOUND ch=' + urlChStr + ' in ' + allChannels.length + ' groups. firstId=' + (allChannels[0] && allChannels[0].id) + ' — playing first channel instead';
+          console.warn('[PW] channel NOT found — playing first channel');
+          if (allChannels.length) { history.replaceState({}, '', '/private-watch?ch=' + allChannels[0].id); playStream(allChannels[0]); return; }
         }
         /* Resume watching */
         const lastId = localStorage.getItem('miz_last_priv_ch');
@@ -4627,7 +4628,7 @@ app.get('/private-watch', (req, res) => {
             }
           }
         }
-        window.location.href = '/private-tv';
+        if (allChannels.length) { playStream(allChannels[0]); }
       } catch(e) {
         console.error('[PW] loadChannels error:', e);
         channelList.innerHTML = '<div style="color:#a33;font-size:13px;padding:14px;">Failed to load channels.</div>';
