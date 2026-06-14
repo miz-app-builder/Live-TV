@@ -674,7 +674,7 @@ app.post('/api/track/heartbeat', async (req, res) => {
     if (!prev || prev.chId !== ch) {
       if (prev && prev.sessionId) {
         const dur = Math.round((Date.now() - prev.startedAt) / 1000);
-        supabaseAdmin.from('user_watch_sessions').update({ ended_at: new Date().toISOString(), duration_seconds: dur }).eq('id', prev.sessionId).catch(()=>{});
+        supabaseAdmin.from('user_watch_sessions').update({ ended_at: new Date().toISOString(), duration_seconds: dur }).eq('id', prev.sessionId).then(()=>{}).catch(()=>{});
       }
       try {
         const { data } = await supabaseAdmin.from('user_watch_sessions').insert({ user_id: authUser.id, channel_id: ch, channel_name: channelDisplayName }).select('id').single();
