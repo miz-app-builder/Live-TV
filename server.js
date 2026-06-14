@@ -4372,7 +4372,7 @@ app.get('/watch', (req, res) => {
     #kb-hint span { color:#888; }
 
     /* Resume prompt */
-    #resume-bar { display:none; background:#1a1a1a; border:1px solid #2a2a2a; border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:12px; color:#aaa; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #resume-bar { display:none; background:#1a1a1a; border:1px solid #2a2a2a; border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:12px; color:#aaa; align-items:center; justify-content:space-between; gap:10px; }
     #resume-bar.show { display:flex; }
     #resume-bar button { background:#e00; border:none; color:#fff; font-size:11px; font-weight:700; padding:5px 12px; border-radius:6px; cursor:pointer; }
     #resume-dismiss { background:#222 !important; color:#888 !important; }
