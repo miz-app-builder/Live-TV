@@ -1320,21 +1320,10 @@ app.get('/api/user/private-channels', async (req, res) => {
   try {
     const role = await getUserRole(user.id);
     if (role === 'admin') {
-      let allPcU = [], pcFromU = 0;
-      while(true) {
-        const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name', { ascending: true }).range(pcFromU, pcFromU + 999);
-        if (error) throw error;
-        if (!data || !data.length) break;
-        allPcU = allPcU.concat(data);
-        pcFromU += 1000;
-        if (data.length < 1000) break;
-      }
-      const pcStatusMapA = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
-      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapA.get(ch.id) || ch.status || 'Offline' }));
       const gMapA = new Map();
-      withCountryA.forEach(ch => {
-        const key = ch.name.toLowerCase().trim();
-        if (!gMapA.has(key)) gMapA.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
+      privateChannels.forEach(ch => {
+        const key = (ch.name || '').toLowerCase().trim();
+        if (!gMapA.has(key)) gMapA.set(key, { ...ch, country: ch.country || detectCountry(ch.name) || '', servers: [{ id: ch.id, url: ch.stream_url }] });
         else {
           gMapA.get(key).servers.push({ id: ch.id, url: ch.stream_url });
           if (ch.status === 'Online') gMapA.get(key).status = 'Online';
@@ -4024,12 +4013,22 @@ app.get('/private-watch', (req, res) => {
       const proxyUrl = '/proxy?url=' + encodeURIComponent(url);
       if (Hls.isSupported()) {
         let _triedDirect = false;
+        let _connectTimer = null;
+        const _clearConnect = () => { if (_connectTimer) { clearTimeout(_connectTimer); _connectTimer = null; } };
         function _startHls(srcUrl) {
           if (currentHls) { currentHls.destroy(); currentHls = null; }
           const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
           currentHls = hls;
           hls.loadSource(srcUrl);
           hls.attachMedia(video);
+          _clearConnect();
+          _connectTimer = setTimeout(() => {
+            if (currentHls) { currentHls.destroy(); currentHls = null; }
+            loadingMsg.classList.remove('visible');
+            setStatus('offline', 'Stream not responding');
+            errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
+            errorMsg.classList.add('visible');
+          }, 15000);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
           function _onTimeUpdate() {
@@ -4037,6 +4036,7 @@ app.get('/private-watch', (req, res) => {
           }
           video.addEventListener('timeupdate', _onTimeUpdate, { passive: true });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            _clearConnect();
             loadingMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
             video.muted = true; updateVolIcon();
@@ -4056,6 +4056,7 @@ app.get('/private-watch', (req, res) => {
           });
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
+              _clearConnect();
               _clearStall();
               video.removeEventListener('timeupdate', _onTimeUpdate);
               hls.destroy();
@@ -5284,12 +5285,22 @@ app.get('/watch', (req, res) => {
       const proxyUrl = '/proxy?url=' + encodeURIComponent(url);
       if (Hls.isSupported()) {
         let _triedDirect = false;
+        let _connectTimer = null;
+        const _clearConnect = () => { if (_connectTimer) { clearTimeout(_connectTimer); _connectTimer = null; } };
         function _startHls(srcUrl) {
           if (currentHls) { currentHls.destroy(); currentHls = null; }
           const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
           currentHls = hls;
           hls.loadSource(srcUrl);
           hls.attachMedia(video);
+          _clearConnect();
+          _connectTimer = setTimeout(() => {
+            if (currentHls) { currentHls.destroy(); currentHls = null; }
+            loadingMsg.classList.remove('visible');
+            setStatus('offline', 'Stream not responding');
+            errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
+            errorMsg.classList.add('visible');
+          }, 15000);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
           function _onTimeUpdate() {
@@ -5297,6 +5308,7 @@ app.get('/watch', (req, res) => {
           }
           video.addEventListener('timeupdate', _onTimeUpdate, { passive: true });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            _clearConnect();
             loadingMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
             video.muted = true; updateVolIcon();
@@ -5316,6 +5328,7 @@ app.get('/watch', (req, res) => {
           });
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
+              _clearConnect();
               _clearStall();
               video.removeEventListener('timeupdate', _onTimeUpdate);
               hls.destroy();
