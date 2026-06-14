@@ -4024,10 +4024,18 @@ app.get('/private-watch', (req, res) => {
           _clearConnect();
           _connectTimer = setTimeout(() => {
             if (currentHls) { currentHls.destroy(); currentHls = null; }
-            loadingMsg.classList.remove('visible');
-            setStatus('offline', 'Stream not responding');
-            errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
-            errorMsg.classList.add('visible');
+            if (!_triedDirect && srcUrl === proxyUrl) {
+              _triedDirect = true;
+              setStatus('loading', 'Retrying direct...');
+              loadingMsg.classList.add('visible');
+              errorMsg.classList.remove('visible');
+              _startHls(url);
+            } else {
+              loadingMsg.classList.remove('visible');
+              setStatus('offline', 'Stream not responding');
+              errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
+              errorMsg.classList.add('visible');
+            }
           }, 15000);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
@@ -5296,10 +5304,18 @@ app.get('/watch', (req, res) => {
           _clearConnect();
           _connectTimer = setTimeout(() => {
             if (currentHls) { currentHls.destroy(); currentHls = null; }
-            loadingMsg.classList.remove('visible');
-            setStatus('offline', 'Stream not responding');
-            errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
-            errorMsg.classList.add('visible');
+            if (!_triedDirect && srcUrl === proxyUrl) {
+              _triedDirect = true;
+              setStatus('loading', 'Retrying direct...');
+              loadingMsg.classList.add('visible');
+              errorMsg.classList.remove('visible');
+              _startHls(url);
+            } else {
+              loadingMsg.classList.remove('visible');
+              setStatus('offline', 'Stream not responding');
+              errorDetail.innerHTML = 'Could not connect to stream. The stream may be offline or unreachable.';
+              errorMsg.classList.add('visible');
+            }
           }, 15000);
           let _stallTimer = null;
           const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
