@@ -41,6 +41,67 @@ async function loadChannelsFromDB() {
   } catch(e) { console.error('loadChannelsFromDB failed:', e.message); }
 }
 
+/* ── Stream Health Checker ───────────────────────────────── */
+const HEALTH_BATCH     = 25;      // channels per batch
+const HEALTH_DELAY_MS  = 1500;    // delay between batches
+const HEALTH_TIMEOUT_MS= 5000;    // per-stream timeout
+const HEALTH_INTERVAL  = 2 * 60 * 60 * 1000; // 2 hours
+let   _healthRunning   = false;
+
+function _checkStreamUrl(url) {
+  return new Promise(resolve => {
+    try {
+      const mod = url.startsWith('https') ? https : http;
+      const timer = setTimeout(() => { try { req.destroy(); } catch(_) {} resolve(false); }, HEALTH_TIMEOUT_MS);
+      const req = mod.request(url, { method: 'HEAD', timeout: HEALTH_TIMEOUT_MS,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } }, res => {
+        clearTimeout(timer);
+        req.destroy();
+        resolve(res.statusCode < 500);
+      });
+      req.on('error', () => { clearTimeout(timer); resolve(false); });
+      req.on('timeout', () => { clearTimeout(timer); req.destroy(); resolve(false); });
+      req.end();
+    } catch(_) { resolve(false); }
+  });
+}
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runStreamHealthCheck() {
+  if (_healthRunning) return;
+  _healthRunning = true;
+  console.log('[Health] Stream check started —', channels.length, 'channels');
+  const updates = []; // { id, status }
+  for (let i = 0; i < channels.length; i += HEALTH_BATCH) {
+    const batch = channels.slice(i, i + HEALTH_BATCH);
+    const results = await Promise.all(batch.map(ch => _checkStreamUrl(ch.stream_url)));
+    results.forEach((ok, idx) => {
+      const ch = batch[idx];
+      const newStatus = ok ? 'Online' : 'Offline';
+      if (ch.status !== newStatus) updates.push({ id: ch.id, status: newStatus });
+      ch.status = newStatus;
+    });
+    if (i + HEALTH_BATCH < channels.length) await _sleep(HEALTH_DELAY_MS);
+  }
+  if (updates.length) {
+    const onIds  = updates.filter(u => u.status === 'Online').map(u => u.id);
+    const offIds = updates.filter(u => u.status === 'Offline').map(u => u.id);
+    if (onIds.length)  await supabaseAdmin.from('channels').update({ status: 'Online'  }).in('id', onIds).catch(()=>{});
+    if (offIds.length) await supabaseAdmin.from('channels').update({ status: 'Offline' }).in('id', offIds).catch(()=>{});
+    console.log('[Health] Done —', onIds.length, 'Online,', offIds.length, 'Offline updated');
+  } else {
+    console.log('[Health] Done — no status changes');
+  }
+  _healthRunning = false;
+}
+
+/* Start: first check 5 min after startup, then every 2 hours */
+setTimeout(() => {
+  runStreamHealthCheck();
+  setInterval(runStreamHealthCheck, HEALTH_INTERVAL);
+}, 5 * 60 * 1000);
+
 let appConfig = { guest_limit_minutes: '5' };
 const channelViews = new Map();
 const activeUsers = new Map();
