@@ -1378,7 +1378,6 @@ app.get('/api/user/private-channels', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const role = await getUserRole(user.id);
-    console.log('[PRIV-API] user=' + user.id.slice(0,8) + ' role=' + role);
     if (role === 'admin') {
       const gMapA = new Map();
       privateChannels.forEach(ch => {
@@ -1389,9 +1388,7 @@ app.get('/api/user/private-channels', async (req, res) => {
           if (ch.status === 'Online') gMapA.get(key).status = 'Online';
         }
       });
-      const adminResult = Array.from(gMapA.values());
-      console.log('[PRIV-API] admin path: groups=' + adminResult.length + ' firstId=' + (adminResult[0] && adminResult[0].id));
-      return res.json({ channels: adminResult });
+      return res.json({ channels: Array.from(gMapA.values()) });
     }
     const [{ data: chanAccess }, { data: catAccess }] = await Promise.all([
       supabaseAdmin.from('private_channel_user_access').select('channel_id').eq('user_id', user.id),
@@ -1399,7 +1396,6 @@ app.get('/api/user/private-channels', async (req, res) => {
     ]);
     const channelIds = (chanAccess || []).map(a => a.channel_id);
     const categories = (catAccess || []).map(a => a.category);
-    console.log('[PRIV-API] user path: channelIds=' + channelIds.length + ' categories=' + categories.length);
     if (channelIds.length === 0 && categories.length === 0) return res.json({ channels: [] });
     const conditions = [];
     if (channelIds.length > 0) conditions.push(`id.in.(${channelIds.join(',')})`);
@@ -3494,7 +3490,7 @@ app.get('/private-tv', (req, res) => {
         nameEl.className = 'grid-name';
         nameEl.textContent = ch.name;
         card.appendChild(nameEl);
-        card.addEventListener('click', () => { console.log('[PTV] clicking channel id=' + ch.id + ' type=' + typeof ch.id + ' name=' + ch.name); window.location.href = '/private-watch?ch=' + ch.id; });
+        card.addEventListener('click', () => { window.location.href = '/private-watch?ch=' + ch.id; });
         frag.appendChild(card);
       });
       gridChannels.appendChild(frag);
@@ -3956,14 +3952,6 @@ app.get('/private-watch', (req, res) => {
 
   <div class="server-bar" id="server-bar" style="display:none"></div>
 
-  <div id="_dbg" style="display:block;width:100%;max-width:960px;background:#1a1a1a;color:#ffcc00;font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:6px;word-break:break-all;min-height:20px">Loading...</div>
-  <script>
-    (function(){
-      const tok = localStorage.getItem('miz_token');
-      const d = document.getElementById('_dbg');
-      if(d) d.textContent = tok ? 'TOKEN OK (len=' + tok.length + ') — calling API...' : 'NO TOKEN in localStorage — will redirect to /';
-    })();
-  </script>
 
   <div class="channel-section" id="channel-section">
     <div class="ch-header">
@@ -4584,30 +4572,18 @@ app.get('/private-watch', (req, res) => {
     });
 
     async function loadChannels() {
-      const dbg = document.getElementById('_dbg');
       try {
         const tok = localStorage.getItem('miz_token');
-        if (dbg) dbg.textContent = 'Fetching /api/user/private-channels ...';
         const r = await fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } });
-        if (dbg) dbg.textContent = 'HTTP ' + r.status + ' received';
         if (r.status === 401) { window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
-        if (dbg) dbg.textContent = 'API OK: ' + allChannels.length + ' groups | firstId=' + (allChannels[0] && allChannels[0].id);
-        console.log('[PW] loadChannels: total channels =', allChannels.length);
         renderRecent();
         applyFilter();
         const urlChStr = new URLSearchParams(window.location.search).get('ch');
-        console.log('[PW] urlChStr =', urlChStr, '| first channel id =', allChannels[0] && allChannels[0].id, '| type =', allChannels[0] && typeof allChannels[0].id);
         if (urlChStr) {
           const ch = allChannels.find(c => String(c.id) === urlChStr);
-          console.log('[PW] channel found?', !!ch, ch && ch.name, '| stream_url =', ch && (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url));
-          if (ch) {
-            if (dbg) dbg.textContent = 'FOUND ch=' + urlChStr + ': ' + ch.name + ' | URL: ' + (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url || '(none)').slice(0,60);
-            playStream(ch); return;
-          }
-          if (dbg) dbg.textContent = 'NOT FOUND ch=' + urlChStr + ' in ' + allChannels.length + ' groups. firstId=' + (allChannels[0] && allChannels[0].id) + ' — playing first channel instead';
-          console.warn('[PW] channel NOT found — playing first channel');
+          if (ch) { playStream(ch); return; }
           if (allChannels.length) { history.replaceState({}, '', '/private-watch?ch=' + allChannels[0].id); playStream(allChannels[0]); return; }
         }
         /* Resume watching */
@@ -4632,9 +4608,6 @@ app.get('/private-watch', (req, res) => {
         }
         if (allChannels.length) { playStream(allChannels[0]); }
       } catch(e) {
-        console.error('[PW] loadChannels error:', e);
-        const dbg2 = document.getElementById('_dbg');
-        if (dbg2) dbg2.textContent = 'ERROR: ' + e.message;
         channelList.innerHTML = '<div style="color:#a33;font-size:13px;padding:14px;">Failed to load channels.</div>';
       }
     }
