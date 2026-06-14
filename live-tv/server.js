@@ -3764,6 +3764,15 @@ app.get('/private-watch', (req, res) => {
     }
     .channel-item:hover { background: #1c1c1c; border-color: #c00; }
     .channel-item.active { background: #1a0000; border-color: #e00; }
+    .channel-item.ch-failed { opacity: 0.45; }
+    .channel-item.ch-failed .ch-name::after { content: ' ⚠'; font-size: 11px; color: #a55; }
+    .hide-toggle {
+      background: none; border: 1px solid #333; border-radius: 5px;
+      color: #555; font-size: 11px; font-weight: 600; padding: 3px 9px;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .hide-toggle:hover { border-color: #e00; color: #ccc; }
+    .hide-toggle.active { border-color: #e00; color: #e00; background: #1a0000; }
     .channel-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .ch-number { font-size: 11px; font-weight: 700; color: #444; min-width: 26px; flex-shrink: 0; }
     .ch-name { font-size: 13px; font-weight: 500; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3865,7 +3874,10 @@ app.get('/private-watch', (req, res) => {
   <div class="channel-section" id="channel-section">
     <div class="ch-header">
       <h2>Private Channels</h2>
-      <span class="ch-count" id="ch-count"></span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="ch-count" id="ch-count"></span>
+        <button class="hide-toggle" id="hide-toggle">Hide unavailable</button>
+      </div>
     </div>
     <input class="search-bar" id="search" type="text" placeholder="&#128269;  Search channels..." autocomplete="off" />
     <div class="channel-list" id="channel-list">
@@ -3935,6 +3947,29 @@ app.get('/private-watch', (req, res) => {
     let hideTimer   = null;
     let currentServers = [];
     let currentActiveServerIdx = 0;
+
+    const FAILED_KEY = 'miz_priv_failed_v1';
+    let failedIds = new Set(JSON.parse(localStorage.getItem(FAILED_KEY) || '[]'));
+    let hideUnavailable = false;
+
+    function markFailed(id) {
+      if (!id) return;
+      failedIds.add(id);
+      localStorage.setItem(FAILED_KEY, JSON.stringify([...failedIds]));
+      document.querySelectorAll('.channel-item[data-id="' + id + '"]').forEach(el => el.classList.add('ch-failed'));
+    }
+
+    function isGeoName(name) {
+      return /\[geo.?block/i.test(name) || /\[not.?avail/i.test(name);
+    }
+
+    const hideToggleBtn = document.getElementById('hide-toggle');
+    hideToggleBtn.addEventListener('click', () => {
+      hideUnavailable = !hideUnavailable;
+      hideToggleBtn.classList.toggle('active', hideUnavailable);
+      hideToggleBtn.textContent = hideUnavailable ? 'Show all' : 'Hide unavailable';
+      applyFilter();
+    });
 
     function renderServerBar() {
       if (!serverBar) return;
@@ -4015,8 +4050,13 @@ app.get('/private-watch', (req, res) => {
               const isCodec = data.details && data.details.toLowerCase().includes('codec');
               if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
               else {
-                setStatus('offline','Stream error');
-                errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
+                markFailed(activeId);
+                const isGeo = activeId && allChannels.find(c=>c.id===activeId) &&
+                              isGeoName(allChannels.find(c=>c.id===activeId).name || '');
+                setStatus('offline', isGeo ? 'Region restricted' : 'Stream unavailable');
+                errorDetail.innerHTML = isGeo
+                  ? 'This channel is not available in your region.'
+                  : 'Could not load this stream. Try another server or channel.';
                 errorMsg.classList.add('visible');
               }
             }
@@ -4324,8 +4364,9 @@ app.get('/private-watch', (req, res) => {
       }
       const frag = document.createDocumentFragment();
       list.forEach((ch, idx) => {
+        const isFailed = failedIds.has(ch.id) || isGeoName(ch.name || '');
         const item = document.createElement('div');
-        item.className = 'channel-item' + (ch.id === activeId ? ' active' : '');
+        item.className = 'channel-item' + (ch.id === activeId ? ' active' : '') + (isFailed ? ' ch-failed' : '');
         item.dataset.id = ch.id;
         item.innerHTML =
           '<div class="channel-left">' +
@@ -4346,12 +4387,15 @@ app.get('/private-watch', (req, res) => {
       channelList.appendChild(frag);
     }
 
-    searchInput.addEventListener('input', () => {
+    function applyFilter() {
       const q = searchInput.value.toLowerCase().trim();
-      const filtered = q ? allChannels.filter(c => c.name.toLowerCase().includes(q)) : allChannels;
-      chCount.textContent = filtered.length + ' channels';
-      renderChannels(filtered);
-    });
+      let list = q ? allChannels.filter(c => c.name.toLowerCase().includes(q)) : allChannels;
+      if (hideUnavailable) list = list.filter(c => !failedIds.has(c.id) && !isGeoName(c.name || ''));
+      chCount.textContent = list.length + ' channels';
+      renderChannels(list);
+    }
+
+    searchInput.addEventListener('input', applyFilter);
 
     window.addEventListener('popstate', (e) => {
       const id = e.state && e.state.chId
@@ -4372,8 +4416,7 @@ app.get('/private-watch', (req, res) => {
         if (r.status === 401) { sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
-        chCount.textContent = allChannels.length + ' channels';
-        renderChannels(allChannels);
+        applyFilter();
         const urlChId = parseInt(new URLSearchParams(window.location.search).get('ch'));
         if (urlChId) {
           const ch = allChannels.find(c => c.id === urlChId);
@@ -5262,8 +5305,13 @@ app.get('/watch', (req, res) => {
               const isCodec = data.details && data.details.toLowerCase().includes('codec');
               if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
               else {
-                setStatus('offline','Stream error');
-                errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
+                markFailed(activeId);
+                const isGeo = activeId && allChannels.find(c=>c.id===activeId) &&
+                              isGeoName(allChannels.find(c=>c.id===activeId).name || '');
+                setStatus('offline', isGeo ? 'Region restricted' : 'Stream unavailable');
+                errorDetail.innerHTML = isGeo
+                  ? 'This channel is not available in your region.'
+                  : 'Could not load this stream. Try another server or channel.';
                 errorMsg.classList.add('visible');
               }
             }
