@@ -1102,7 +1102,7 @@ app.get('/api/admin/private-channels', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   try {
-    const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('name', { ascending: true });
     if (error) throw error;
     res.json({ channels: data });
   } catch(e) { res.status(500).json({ error: e.message }); }
