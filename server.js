@@ -3406,12 +3406,6 @@ app.get('/private-tv', (req, res) => {
     <div id="grid-pagination"></div>
   </div>
   <script>
-    (function() {
-      /* ── Security gate ── */
-      const tok = localStorage.getItem('miz_token');
-      if (!tok) { window.location.replace('/'); throw new Error('blocked'); }
-    })();
-
     /* ── Grid ── */
     const gridChannels = document.getElementById('grid-channels');
     const gridSearch   = document.getElementById('grid-search');
@@ -4006,11 +4000,6 @@ app.get('/private-watch', (req, res) => {
     .server-btn.active { background: #e00; border-color: #e00; color: #fff; }
   </style>
   <script>
-    (function() {
-      const tok = localStorage.getItem('miz_token');
-      if (!tok) { window.location.replace('/'); throw new Error('blocked'); }
-    })();
-
     const video        = document.getElementById('video');
     const playerWrap   = document.getElementById('player-wrapper');
     const dot          = document.getElementById('dot');
