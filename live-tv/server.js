@@ -235,18 +235,22 @@ app.use(express.json());
 
 
 // HLS Proxy — fetches external stream server-side, avoids browser CORS issues
-function fetchUrl(url, extraHeaders = {}) {
+function fetchUrl(url, extraHeaders = {}, _redirects = 0) {
   return new Promise((resolve, reject) => {
+    if (_redirects > 5) return reject(new Error('Too many redirects'));
     const lib = url.startsWith('https') ? https : http;
-    const options = { headers: { 'User-Agent': 'Mozilla/5.0', ...extraHeaders } };
-    lib.get(url, options, (res) => {
+    const options = { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', ...extraHeaders }, timeout: 15000 };
+    const req = lib.get(url, options, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchUrl(res.headers.location, extraHeaders).then(resolve).catch(reject);
+        res.resume();
+        return fetchUrl(res.headers.location, extraHeaders, _redirects + 1).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', d => chunks.push(d));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+    req.on('error', reject);
   });
 }
 
@@ -256,13 +260,25 @@ app.get('/proxy', async (req, res) => {
   if (!targetUrl) return res.status(400).send('Missing url param');
 
   try {
-    const result = await fetchUrl(decodeURIComponent(targetUrl));
+    const decodedUrl = decodeURIComponent(targetUrl);
+    const result = await fetchUrl(decodedUrl);
     const contentType = result.headers['content-type'] || '';
 
+    // If upstream returned an error status, relay it immediately
+    if (result.status >= 400) {
+      return res.status(502).send('Upstream error ' + result.status);
+    }
+
+    const bodyStr = result.body.toString('utf8');
+    const isHls = targetUrl.includes('.m3u8') ||
+                  contentType.includes('mpegurl') ||
+                  contentType.includes('x-mpegURL') ||
+                  bodyStr.trimStart().startsWith('#EXTM3U');
+
     // If it's an m3u8, rewrite segment URLs to go through proxy too
-    if (targetUrl.includes('.m3u8') || contentType.includes('mpegurl') || contentType.includes('x-mpegURL')) {
-      let manifest = result.body.toString('utf8');
-      const base = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+    if (isHls) {
+      let manifest = bodyStr;
+      const base = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
 
       // Strip CODECS so sandboxed browsers don't fail codec compatibility check
       manifest = manifest.replace(/,?\s*CODECS="[^"]*"/gi, '');
@@ -288,8 +304,8 @@ app.get('/proxy', async (req, res) => {
       return res.send(manifest);
     }
 
-    // For .ts segments — stream through directly
-    res.setHeader('Content-Type', result.headers['content-type'] || 'video/MP2T');
+    // For .ts segments and other binary — stream through directly
+    res.setHeader('Content-Type', contentType || 'video/MP2T');
     res.setHeader('Cache-Control', 'no-cache');
     res.send(result.body);
 
