@@ -261,7 +261,13 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const decodedUrl = decodeURIComponent(targetUrl);
-    const result = await fetchUrl(decodedUrl);
+    // Build Referer/Origin from the stream URL's origin so servers don't block us
+    let streamOrigin = '';
+    try { const u = new URL(decodedUrl); streamOrigin = u.origin; } catch(_) {}
+    const proxyHeaders = streamOrigin
+      ? { 'Referer': streamOrigin + '/', 'Origin': streamOrigin }
+      : {};
+    const result = await fetchUrl(decodedUrl, proxyHeaders);
     const contentType = result.headers['content-type'] || '';
 
     // If upstream returned an error status, relay it immediately
