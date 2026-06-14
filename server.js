@@ -670,8 +670,13 @@ app.post('/api/track/heartbeat', async (req, res) => {
 /* ── Presence ping (logged-in users browsing, no channel) ── */
 app.post('/api/track/presence', async (req, res) => {
   const authUser = await verifyUser(req);
-  if (authUser) activeUsers.set(authUser.id, Date.now());
-  res.json({ ok: !!authUser });
+  if (authUser) {
+    activeUsers.set(authUser.id, Date.now());
+  } else {
+    const guestKey = 'g_' + (req.headers['x-forwarded-for'] || req.ip || 'unknown');
+    activeUsers.set(guestKey, Date.now());
+  }
+  res.json({ ok: true });
 });
 
 /* ── Admin: live viewer count for a channel ─────────────── */
@@ -1803,7 +1808,7 @@ app.get('/admin', async (req, res) => {
   if (!token) window.location.href = '/login';
 
   let tabLoaded = {};
-  let _activeTab = 'dashboard';
+  let _activeTab = localStorage.getItem('admin_active_tab') || 'dashboard';
   let _autoRefreshTimer = null;
 
   function startAutoRefresh(tab) {
@@ -1817,20 +1822,24 @@ app.get('/admin', async (req, res) => {
     }
   }
 
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
+    const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+    const panel = document.getElementById('tab-' + tabName);
+    if (panel) panel.hidden = false;
+    _activeTab = tabName;
+    localStorage.setItem('admin_active_tab', tabName);
+    if (!tabLoaded[tabName]) { tabLoaded[tabName] = true; loadTab(tabName); }
+    startAutoRefresh(tabName);
+  }
+
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
-      btn.classList.add('active');
-      _activeTab = btn.dataset.tab;
-      document.getElementById('tab-' + btn.dataset.tab).hidden = false;
-      if (!tabLoaded[btn.dataset.tab]) { tabLoaded[btn.dataset.tab] = true; loadTab(btn.dataset.tab); }
-      startAutoRefresh(btn.dataset.tab);
-    });
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-  tabLoaded['dashboard'] = true;
-  loadTab('dashboard');
-  startAutoRefresh('dashboard');
+
+  switchTab(_activeTab);
 
   function loadTab(t) {
     if (t === 'dashboard') loadDashboard();
@@ -3016,12 +3025,15 @@ app.get('/', (req, res) => {
         } catch(_) {}
       }
       renderAuthUI(user, role);
-      if (user) {
-        const tok = localStorage.getItem('miz_token');
-        function sendPresence() { fetch('/api/track/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + tok } }).catch(()=>{}); }
-        sendPresence();
-        setInterval(sendPresence, 60000);
+      const tok = localStorage.getItem('miz_token');
+      function sendPresence() {
+        fetch('/api/track/presence', {
+          method: 'POST',
+          headers: tok ? { Authorization: 'Bearer ' + tok } : {}
+        }).catch(()=>{});
       }
+      sendPresence();
+      setInterval(sendPresence, 60000);
     }
     initAuth();
     loadChannels();
