@@ -74,7 +74,7 @@ function _checkStreamUrl(url) {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } }, res => {
         clearTimeout(timer);
         req.destroy();
-        resolve(res.statusCode < 500);
+        resolve(res.statusCode >= 200 && res.statusCode < 400);
       });
       req.on('error', () => { clearTimeout(timer); resolve(false); });
       req.on('timeout', () => { clearTimeout(timer); req.destroy(); resolve(false); });
