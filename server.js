@@ -3953,6 +3953,13 @@ app.get('/private-watch', (req, res) => {
   <div class="server-bar" id="server-bar" style="display:none"></div>
 
   <div id="_dbg" style="display:block;width:100%;max-width:960px;background:#1a1a1a;color:#ffcc00;font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:6px;word-break:break-all;min-height:20px">Loading...</div>
+  <script>
+    (function(){
+      const tok = localStorage.getItem('miz_token');
+      const d = document.getElementById('_dbg');
+      if(d) d.textContent = tok ? 'TOKEN OK (len=' + tok.length + ') — calling API...' : 'NO TOKEN in localStorage — will redirect to /';
+    })();
+  </script>
 
   <div class="channel-section" id="channel-section">
     <div class="ch-header">
