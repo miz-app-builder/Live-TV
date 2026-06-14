@@ -9,6 +9,15 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 
+// Prevent server crashes from unhandled errors (e.g. ECONNRESET from client disconnect)
+process.on('uncaughtException', (err) => {
+  if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ECONNABORTED') return;
+  console.error('[uncaughtException]', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason && reason.message ? reason.message : reason);
+});
+
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '',
@@ -332,9 +341,12 @@ function _pipeUpstream(url, extraHeaders, res, _redirects) {
       res.setHeader('Content-Type', ct || 'video/MP2T');
       res.setHeader('Cache-Control', 'no-cache');
       if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
+      // Prevent ECONNRESET crash when client disconnects mid-stream
+      res.on('error', () => { try { upstream.destroy(); } catch(_) {} resolve(); });
+      res.on('close', () => { try { upstream.destroy(); } catch(_) {} resolve(); });
       upstream.pipe(res);
       upstream.on('end', resolve);
-      upstream.on('error', () => { if (!res.headersSent) res.status(502).send('Proxy stream error'); resolve(); });
+      upstream.on('error', () => { if (!res.headersSent) { try { res.status(502).send('Proxy stream error'); } catch(_) {} } resolve(); });
     });
     req.on('timeout', () => { req.destroy(); if (!res.headersSent) res.status(502).send('Proxy timeout'); resolve(); });
     req.on('error', () => { if (!res.headersSent) res.status(502).send('Proxy error'); resolve(); });
