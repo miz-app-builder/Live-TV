@@ -3409,10 +3409,7 @@ app.get('/private-tv', (req, res) => {
     (function() {
       /* ── Security gate ── */
       const tok = localStorage.getItem('miz_token');
-      if (!tok || sessionStorage.getItem('miz_private_ok') !== '1') {
-        window.location.replace('/');
-        throw new Error('blocked');
-      }
+      if (!tok) { window.location.replace('/'); throw new Error('blocked'); }
     })();
 
     /* ── Grid ── */
@@ -4011,10 +4008,7 @@ app.get('/private-watch', (req, res) => {
   <script>
     (function() {
       const tok = localStorage.getItem('miz_token');
-      if (!tok || sessionStorage.getItem('miz_private_ok') !== '1') {
-        window.location.replace('/');
-        throw new Error('blocked');
-      }
+      if (!tok) { window.location.replace('/'); throw new Error('blocked'); }
     })();
 
     const video        = document.getElementById('video');
