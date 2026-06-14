@@ -1378,6 +1378,7 @@ app.get('/api/user/private-channels', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const role = await getUserRole(user.id);
+    console.log('[PRIV-API] user=' + user.id.slice(0,8) + ' role=' + role);
     if (role === 'admin') {
       const gMapA = new Map();
       privateChannels.forEach(ch => {
@@ -1388,7 +1389,9 @@ app.get('/api/user/private-channels', async (req, res) => {
           if (ch.status === 'Online') gMapA.get(key).status = 'Online';
         }
       });
-      return res.json({ channels: Array.from(gMapA.values()) });
+      const adminResult = Array.from(gMapA.values());
+      console.log('[PRIV-API] admin path: groups=' + adminResult.length + ' firstId=' + (adminResult[0] && adminResult[0].id));
+      return res.json({ channels: adminResult });
     }
     const [{ data: chanAccess }, { data: catAccess }] = await Promise.all([
       supabaseAdmin.from('private_channel_user_access').select('channel_id').eq('user_id', user.id),
@@ -1396,6 +1399,7 @@ app.get('/api/user/private-channels', async (req, res) => {
     ]);
     const channelIds = (chanAccess || []).map(a => a.channel_id);
     const categories = (catAccess || []).map(a => a.category);
+    console.log('[PRIV-API] user path: channelIds=' + channelIds.length + ' categories=' + categories.length);
     if (channelIds.length === 0 && categories.length === 0) return res.json({ channels: [] });
     const conditions = [];
     if (channelIds.length > 0) conditions.push(`id.in.(${channelIds.join(',')})`);
@@ -3957,6 +3961,8 @@ app.get('/private-watch', (req, res) => {
 
   <div class="server-bar" id="server-bar" style="display:none"></div>
 
+  <div id="_dbg" style="display:block;width:100%;max-width:960px;background:#1a1a1a;color:#ffcc00;font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:6px;word-break:break-all;min-height:20px">Loading...</div>
+
   <div class="channel-section" id="channel-section">
     <div class="ch-header">
       <h2>Private Channels</h2>
@@ -4598,7 +4604,13 @@ app.get('/private-watch', (req, res) => {
         if (urlChStr) {
           const ch = allChannels.find(c => String(c.id) === urlChStr);
           console.log('[PW] channel found?', !!ch, ch && ch.name, '| stream_url =', ch && (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url));
-          if (ch) { playStream(ch); return; }
+          if (ch) {
+            const dbg = document.getElementById('_dbg');
+            if (dbg) dbg.textContent = 'Found: ' + ch.name + ' | URL: ' + (ch.servers && ch.servers[0] && ch.servers[0].url || ch.stream_url || '(none)').slice(0,60);
+            playStream(ch); return;
+          }
+          const dbg = document.getElementById('_dbg');
+          if (dbg) dbg.textContent = 'CH ' + urlChStr + ' NOT found in ' + allChannels.length + ' groups. firstId=' + (allChannels[0] && allChannels[0].id);
           console.warn('[PW] channel NOT found — redirect to private-tv');
         }
         /* Resume watching */
