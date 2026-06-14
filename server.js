@@ -17,6 +17,23 @@ const supabaseAdmin = createClient(
 
 let channels = [];
 let guestBlockedChannels = new Set();
+let privateChannels = [];
+
+async function loadPrivateChannelsFromDB() {
+  try {
+    let all = [], from = 0;
+    while (true) {
+      const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('id').range(from, from + 999);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      all = all.concat(data);
+      if (data.length < 1000) break;
+      from += 1000;
+    }
+    privateChannels = all;
+    console.log(`Loaded ${privateChannels.length} private channels from DB`);
+  } catch(e) { console.error('loadPrivateChannelsFromDB failed:', e.message); }
+}
 
 function rebuildBlockedSet() {
   guestBlockedChannels = new Set(channels.filter(ch => !ch.visible_to_guests).map(ch => ch.id));
@@ -68,13 +85,10 @@ function _checkStreamUrl(url) {
 
 function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function runStreamHealthCheck() {
-  if (_healthRunning) return;
-  _healthRunning = true;
-  console.log('[Health] Stream check started —', channels.length, 'channels');
-  const updates = []; // { id, status }
-  for (let i = 0; i < channels.length; i += HEALTH_BATCH) {
-    const batch = channels.slice(i, i + HEALTH_BATCH);
+async function _runHealthCheckForList(arr, table) {
+  const updates = [];
+  for (let i = 0; i < arr.length; i += HEALTH_BATCH) {
+    const batch = arr.slice(i, i + HEALTH_BATCH);
     const results = await Promise.all(batch.map(ch => _checkStreamUrl(ch.stream_url)));
     results.forEach((ok, idx) => {
       const ch = batch[idx];
@@ -82,17 +96,25 @@ async function runStreamHealthCheck() {
       if (ch.status !== newStatus) updates.push({ id: ch.id, status: newStatus });
       ch.status = newStatus;
     });
-    if (i + HEALTH_BATCH < channels.length) await _sleep(HEALTH_DELAY_MS);
+    if (i + HEALTH_BATCH < arr.length) await _sleep(HEALTH_DELAY_MS);
   }
   if (updates.length) {
     const onIds  = updates.filter(u => u.status === 'Online').map(u => u.id);
     const offIds = updates.filter(u => u.status === 'Offline').map(u => u.id);
-    if (onIds.length)  await supabaseAdmin.from('channels').update({ status: 'Online'  }).in('id', onIds).catch(()=>{});
-    if (offIds.length) await supabaseAdmin.from('channels').update({ status: 'Offline' }).in('id', offIds).catch(()=>{});
-    console.log('[Health] Done —', onIds.length, 'Online,', offIds.length, 'Offline updated');
+    try { if (onIds.length)  await supabaseAdmin.from(table).update({ status: 'Online'  }).in('id', onIds); } catch(_) {}
+    try { if (offIds.length) await supabaseAdmin.from(table).update({ status: 'Offline' }).in('id', offIds); } catch(_) {}
+    console.log('[Health]', table, '—', onIds.length, 'Online,', offIds.length, 'Offline updated');
   } else {
-    console.log('[Health] Done — no status changes');
+    console.log('[Health]', table, '— no status changes');
   }
+}
+
+async function runStreamHealthCheck() {
+  if (_healthRunning) return;
+  _healthRunning = true;
+  console.log('[Health] Stream check started — channels:', channels.length, '| private:', privateChannels.length);
+  await _runHealthCheckForList(channels, 'channels');
+  await _runHealthCheckForList(privateChannels, 'private_channels');
   _healthRunning = false;
 }
 
@@ -404,6 +426,7 @@ async function fetchSportsDBLogos() {
 
 fetchLogoMap().then(() => fetchSportsDBLogos());
 loadChannelsFromDB();
+loadPrivateChannelsFromDB();
 loadAppConfig();
 
 async function ensurePrivatePinColumn() {
@@ -1259,12 +1282,16 @@ app.get('/api/user/private-channels', async (req, res) => {
         pcFromU += 1000;
         if (data.length < 1000) break;
       }
-      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
+      const pcStatusMapA = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
+      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapA.get(ch.id) || ch.status || 'Offline' }));
       const gMapA = new Map();
       withCountryA.forEach(ch => {
         const key = ch.name.toLowerCase().trim();
         if (!gMapA.has(key)) gMapA.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
-        else gMapA.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+        else {
+          gMapA.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+          if (ch.status === 'Online') gMapA.get(key).status = 'Online';
+        }
       });
       return res.json({ channels: Array.from(gMapA.values()) });
     }
@@ -1280,12 +1307,16 @@ app.get('/api/user/private-channels', async (req, res) => {
     if (categories.length > 0) conditions.push(`category.in.(${categories.map(c => '"' + c + '"').join(',')})`);
     const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(','));
     if (error) throw error;
-    const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
+    const pcStatusMapM = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
+    const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapM.get(ch.id) || ch.status || 'Offline' }));
     const gMapM = new Map();
     withCountryM.forEach(ch => {
       const key = ch.name.toLowerCase().trim();
       if (!gMapM.has(key)) gMapM.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
-      else gMapM.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+      else {
+        gMapM.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+        if (ch.status === 'Online') gMapM.get(key).status = 'Online';
+      }
     });
     res.json({ channels: Array.from(gMapM.values()) });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -3346,6 +3377,10 @@ app.get('/private-tv', (req, res) => {
       pageItems.forEach(ch => {
         const card = document.createElement('div');
         card.className = 'grid-card';
+        const dot = document.createElement('span');
+        dot.className = 'grid-status-dot ' + (ch.status === 'Online' ? 'online' : 'offline');
+        dot.title = ch.status || 'Unknown';
+        card.appendChild(dot);
         const fallback = document.createElement('div');
         fallback.className = 'grid-logo';
         fallback.style.background = logoColor(ch.name);
