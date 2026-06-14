@@ -4698,7 +4698,8 @@ app.get('/private-watch', (req, res) => {
         else { localStorage.removeItem('miz_token'); window.location.replace('/'); return; }
       } catch(_) {}
     }
-    initAuth().then(() => loadChannels());
+    initAuth();
+    loadChannels();
   </script>
 </body>
 </html>`);
