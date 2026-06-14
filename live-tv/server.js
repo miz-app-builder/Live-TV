@@ -3287,6 +3287,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/private-tv', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3666,6 +3668,8 @@ app.get('/private-tv', (req, res) => {
 });
 
 app.get('/private-watch', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
