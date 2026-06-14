@@ -4304,24 +4304,7 @@ app.get('/private-watch', (req, res) => {
       qualityLabel.textContent = 'Auto';
       updateMenuActive('auto');
       if (!currentStreamUrl) return;
-      if (currentHls) { currentHls.destroy(); currentHls = null; }
-      loadingMsg.classList.add('visible');
-      setStatus('loading', 'Connecting...');
-      const proxyUrl = '/proxy?url=' + encodeURIComponent(currentStreamUrl);
-      const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
-      currentHls = hls;
-      hls.loadSource(proxyUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        loadingMsg.classList.remove('visible'); setStatus('live', 'Streaming');
-        video.play().catch(()=>{}); updatePlayIcon();
-      });
-      hls.on(Hls.Events.LEVEL_LOADED, () => {
-        if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
-      });
-      hls.on(Hls.Events.ERROR, (_, d) => {
-        if (d.fatal) { loadingMsg.classList.remove('visible'); setStatus('offline','Stream error'); hls.destroy(); }
-      });
+      playFromUrl(currentStreamUrl);
     }
     function buildQualityMenu() {
       qualityMenu.innerHTML = '<div class="quality-menu-title">Quality</div>';
@@ -4419,7 +4402,7 @@ app.get('/private-watch', (req, res) => {
 
     function applyFilter() {
       const q = searchInput.value.toLowerCase().trim();
-      let list = q ? allChannels.filter(c => c.name.toLowerCase().includes(q)) : allChannels;
+      let list = q ? allChannels.filter(c => (c.name || '').toLowerCase().includes(q)) : allChannels;
       if (hideUnavailable) list = list.filter(c => !failedIds.has(c.id) && !isGeoName(c.name || ''));
       chCount.textContent = list.length + ' channels';
       renderChannels(list);
@@ -4525,8 +4508,7 @@ app.get('/private-watch', (req, res) => {
         else { localStorage.removeItem('miz_token'); sessionStorage.removeItem('miz_private_ok'); window.location.replace('/'); return; }
       } catch(_) {}
     }
-    initAuth();
-    loadChannels();
+    initAuth().then(() => loadChannels());
   </script>
 </body>
 </html>`);
