@@ -2943,10 +2943,12 @@ app.get('/', (req, res) => {
 
   <!-- Private PIN modal -->
   <div id="pin-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;align-items:center;justify-content:center">
-    <div style="background:#111;border:1px solid #222;border-radius:20px;padding:36px 32px;width:90%;max-width:300px;text-align:center">
-      <div id="pin-dots" style="display:flex;gap:12px;justify-content:center;margin-bottom:28px">
+    <div id="pin-box" style="background:#111;border:1px solid #222;border-radius:20px;padding:36px 32px;width:90%;max-width:300px;text-align:center">
+      <div style="font-size:13px;color:#666;margin-bottom:16px;letter-spacing:1px">🔒 ENTER PIN</div>
+      <div id="pin-dots" style="display:flex;gap:12px;justify-content:center;margin-bottom:10px">
         <div class="pdot"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div><div class="pdot"></div>
       </div>
+      <div id="pin-msg" style="height:20px;font-size:12px;color:#e44;margin-bottom:16px;transition:opacity .2s;opacity:0"></div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:220px;margin:0 auto">
         <button class="pkey" data-k="1">1</button>
         <button class="pkey" data-k="2">2</button>
@@ -2966,9 +2968,12 @@ app.get('/', (req, res) => {
   <style>
     .pdot{width:14px;height:14px;border-radius:50%;background:#2a2a2a;border:2px solid #444;transition:background .15s}
     .pdot.filled{background:#e00;border-color:#e00}
+    .pdot.wrong{background:#e44;border-color:#e44}
     .pkey{background:#1a1a1a;border:1px solid #2a2a2a;color:#ddd;font-size:20px;font-weight:600;border-radius:12px;padding:14px 0;cursor:pointer;transition:background .1s}
     .pkey:hover{background:#2a2a2a}
     .pkey:active{background:#333}
+    @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+    .pin-shake{animation:pinShake .4s ease}
   </style>
   <script>
     (function() {
@@ -2976,6 +2981,7 @@ app.get('/', (req, res) => {
       overlay.style.display = 'flex';
       overlay.style.display = 'none';
       let pin = '';
+      let busy = false;
       let longPressTimer = null;
       const LONG_MS = 1500;
 
@@ -2995,42 +3001,73 @@ app.get('/', (req, res) => {
       function openPinModal() {
         const tok = localStorage.getItem('miz_token');
         if (!tok) return;
-        pin = '';
+        pin = ''; busy = false;
         updateDots();
+        showMsg('');
         overlay.style.display = 'flex';
       }
-      function closePinModal() { overlay.style.display = 'none'; pin = ''; updateDots(); }
+      function closePinModal() { overlay.style.display = 'none'; pin = ''; busy = false; updateDots(); showMsg(''); }
 
-      function updateDots() {
+      function showMsg(txt) {
+        const el = document.getElementById('pin-msg');
+        el.textContent = txt;
+        el.style.opacity = txt ? '1' : '0';
+      }
+
+      function updateDots(wrong) {
         document.querySelectorAll('.pdot').forEach((d, i) => {
-          d.classList.toggle('filled', i < pin.length);
+          d.classList.toggle('filled', !wrong && i < pin.length);
+          d.classList.toggle('wrong', !!wrong && i < 6);
         });
       }
 
+      function shakeAndReset(msg) {
+        updateDots(true);
+        const box = document.getElementById('pin-box');
+        box.classList.add('pin-shake');
+        showMsg(msg || '❌ Wrong PIN!');
+        setTimeout(() => {
+          box.classList.remove('pin-shake');
+          pin = '';
+          updateDots();
+        }, 500);
+      }
+
       async function submitPin() {
+        if (busy) return;
         const tok = localStorage.getItem('miz_token');
         if (!tok) { closePinModal(); return; }
+        busy = true;
+        showMsg('⏳ Verifying...');
         try {
           const r = await fetch('/api/private/verify-pin', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
             body: JSON.stringify({ pin })
           });
+          if (r.status === 401) {
+            closePinModal();
+            alert('Session expired. Please login again.');
+            window.location.href = '/login';
+            return;
+          }
           const d = await r.json();
           if (d.ok) {
             sessionStorage.setItem('miz_private_ok', '1');
             closePinModal();
             window.location.href = '/private-tv';
           } else {
-            closePinModal();
+            busy = false;
+            shakeAndReset('❌ Wrong PIN! Try again.');
           }
-        } catch(_) { closePinModal(); }
+        } catch(_) { busy = false; shakeAndReset('❌ Connection error!'); }
       }
 
       document.querySelectorAll('.pkey').forEach(btn => {
         btn.addEventListener('click', () => {
+          if (busy) return;
           const k = btn.dataset.k;
-          if (k === 'del') { pin = pin.slice(0, -1); updateDots(); }
+          if (k === 'del') { pin = pin.slice(0, -1); showMsg(''); updateDots(); }
           else if (k !== '' && pin.length < 6) {
             pin += k; updateDots();
             if (pin.length === 6) submitPin();
