@@ -2397,15 +2397,18 @@ app.get('/', (req, res) => {
       margin-left: auto; font-size: 11px; color: #555;
     }
     .live-grid {
-      display: flex; gap: 12px; flex-wrap: wrap;
+      display: flex; gap: 10px; flex-wrap: nowrap;
+      overflow-x: auto; padding-bottom: 6px;
+      scrollbar-width: none; -ms-overflow-style: none;
     }
+    .live-grid::-webkit-scrollbar { display: none; }
     .live-card {
       background: #140000; border: 1.5px solid #2a0808;
-      border-radius: 12px; padding: 14px 12px 12px;
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      border-radius: 12px; padding: 12px 10px 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
       cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
       text-align: center; position: relative;
-      width: 110px; min-width: 90px;
+      width: 95px; min-width: 85px; flex-shrink: 0;
     }
     .live-card:hover { background: #1e0505; border-color: #e00; transform: translateY(-3px); box-shadow: 0 4px 20px rgba(220,0,0,.25); }
     .live-card-badge {
