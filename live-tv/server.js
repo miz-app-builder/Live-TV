@@ -3972,44 +3972,57 @@ app.get('/private-watch', (req, res) => {
       setStatus('loading', 'Connecting...');
       const proxyUrl = '/proxy?url=' + encodeURIComponent(url);
       if (Hls.isSupported()) {
-        const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
-        currentHls = hls;
-        hls.loadSource(proxyUrl);
-        hls.attachMedia(video);
-        let _stallTimer = null;
-        const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
-        video.addEventListener('playing', _clearStall, { passive: true });
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          loadingMsg.classList.remove('visible');
-          setStatus('live', 'Streaming');
-          video.muted = true; updateVolIcon();
-          video.play().catch(()=>{});
-          buildQualityMenu(); updatePlayIcon();
-          _stallTimer = setTimeout(() => {
-            if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
-              setStatus('offline', 'Stream not responding');
-              errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
-              errorMsg.classList.add('visible');
-            }
-          }, 12000);
-        });
-        hls.on(Hls.Events.LEVEL_LOADED, () => {
-          if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
-        });
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            _clearStall();
+        let _triedDirect = false;
+        function _startHls(srcUrl) {
+          if (currentHls) { currentHls.destroy(); currentHls = null; }
+          const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
+          currentHls = hls;
+          hls.loadSource(srcUrl);
+          hls.attachMedia(video);
+          let _stallTimer = null;
+          const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
+          video.addEventListener('playing', _clearStall, { passive: true });
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
             loadingMsg.classList.remove('visible');
-            const isCodec = data.details && data.details.toLowerCase().includes('codec');
-            if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
-            else {
-              setStatus('offline','Stream error');
-              errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
-              errorMsg.classList.add('visible');
+            setStatus('live', 'Streaming');
+            video.muted = true; updateVolIcon();
+            video.play().catch(()=>{});
+            buildQualityMenu(); updatePlayIcon();
+            _stallTimer = setTimeout(() => {
+              if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+                setStatus('offline', 'Stream not responding');
+                errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
+                errorMsg.classList.add('visible');
+              }
+            }, 12000);
+          });
+          hls.on(Hls.Events.LEVEL_LOADED, () => {
+            if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
+          });
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+              _clearStall();
+              hls.destroy();
+              if (!_triedDirect && srcUrl === proxyUrl) {
+                _triedDirect = true;
+                setStatus('loading', 'Retrying direct...');
+                loadingMsg.classList.add('visible');
+                errorMsg.classList.remove('visible');
+                _startHls(url);
+                return;
+              }
+              loadingMsg.classList.remove('visible');
+              const isCodec = data.details && data.details.toLowerCase().includes('codec');
+              if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
+              else {
+                setStatus('offline','Stream error');
+                errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
+                errorMsg.classList.add('visible');
+              }
             }
-            hls.destroy();
-          }
-        });
+          });
+        }
+        _startHls(proxyUrl);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = proxyUrl;
         video.addEventListener('loadedmetadata', () => {
@@ -5206,44 +5219,57 @@ app.get('/watch', (req, res) => {
       setStatus('loading', 'Connecting...');
       const proxyUrl = '/proxy?url=' + encodeURIComponent(url);
       if (Hls.isSupported()) {
-        const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
-        currentHls = hls;
-        hls.loadSource(proxyUrl);
-        hls.attachMedia(video);
-        let _stallTimer = null;
-        const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
-        video.addEventListener('playing', _clearStall, { passive: true });
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          loadingMsg.classList.remove('visible');
-          setStatus('live', 'Streaming');
-          video.muted = true; updateVolIcon();
-          video.play().catch(()=>{});
-          buildQualityMenu(); updatePlayIcon();
-          _stallTimer = setTimeout(() => {
-            if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
-              setStatus('offline', 'Stream not responding');
-              errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
-              errorMsg.classList.add('visible');
-            }
-          }, 12000);
-        });
-        hls.on(Hls.Events.LEVEL_LOADED, () => {
-          if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
-        });
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            _clearStall();
+        let _triedDirect = false;
+        function _startHls(srcUrl) {
+          if (currentHls) { currentHls.destroy(); currentHls = null; }
+          const hls = new Hls({ liveSyncDurationCount:3, liveMaxLatencyDurationCount:6, enableWorker:true });
+          currentHls = hls;
+          hls.loadSource(srcUrl);
+          hls.attachMedia(video);
+          let _stallTimer = null;
+          const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
+          video.addEventListener('playing', _clearStall, { passive: true });
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
             loadingMsg.classList.remove('visible');
-            const isCodec = data.details && data.details.toLowerCase().includes('codec');
-            if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
-            else {
-              setStatus('offline','Stream error');
-              errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
-              errorMsg.classList.add('visible');
+            setStatus('live', 'Streaming');
+            video.muted = true; updateVolIcon();
+            video.play().catch(()=>{});
+            buildQualityMenu(); updatePlayIcon();
+            _stallTimer = setTimeout(() => {
+              if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+                setStatus('offline', 'Stream not responding');
+                errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
+                errorMsg.classList.add('visible');
+              }
+            }, 12000);
+          });
+          hls.on(Hls.Events.LEVEL_LOADED, () => {
+            if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
+          });
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+              _clearStall();
+              hls.destroy();
+              if (!_triedDirect && srcUrl === proxyUrl) {
+                _triedDirect = true;
+                setStatus('loading', 'Retrying direct...');
+                loadingMsg.classList.add('visible');
+                errorMsg.classList.remove('visible');
+                _startHls(url);
+                return;
+              }
+              loadingMsg.classList.remove('visible');
+              const isCodec = data.details && data.details.toLowerCase().includes('codec');
+              if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
+              else {
+                setStatus('offline','Stream error');
+                errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
+                errorMsg.classList.add('visible');
+              }
             }
-            hls.destroy();
-          }
-        });
+          });
+        }
+        _startHls(proxyUrl);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = proxyUrl;
         video.addEventListener('loadedmetadata', () => {
