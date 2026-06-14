@@ -4580,13 +4580,15 @@ app.get('/private-watch', (req, res) => {
     });
 
     async function loadChannels() {
+      const dbg = document.getElementById('_dbg');
       try {
         const tok = localStorage.getItem('miz_token');
+        if (dbg) dbg.textContent = 'Fetching /api/user/private-channels ...';
         const r = await fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } });
+        if (dbg) dbg.textContent = 'HTTP ' + r.status + ' received';
         if (r.status === 401) { window.location.replace('/'); return; }
         const data = await r.json();
         allChannels = data.channels || [];
-        const dbg = document.getElementById('_dbg');
         if (dbg) dbg.textContent = 'API OK: ' + allChannels.length + ' groups | firstId=' + (allChannels[0] && allChannels[0].id);
         console.log('[PW] loadChannels: total channels =', allChannels.length);
         renderRecent();
@@ -4627,6 +4629,8 @@ app.get('/private-watch', (req, res) => {
         if (allChannels.length) { playStream(allChannels[0]); }
       } catch(e) {
         console.error('[PW] loadChannels error:', e);
+        const dbg2 = document.getElementById('_dbg');
+        if (dbg2) dbg2.textContent = 'ERROR: ' + e.message;
         channelList.innerHTML = '<div style="color:#a33;font-size:13px;padding:14px;">Failed to load channels.</div>';
       }
     }
