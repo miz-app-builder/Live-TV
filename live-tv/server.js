@@ -30,7 +30,7 @@ async function loadPrivateChannelsFromDB() {
       if (data.length < 1000) break;
       from += 1000;
     }
-    privateChannels = all;
+    privateChannels = all.map(ch => ({ ...ch, status: ch.status || 'Online' }));
     console.log(`Loaded ${privateChannels.length} private channels from DB`);
   } catch(e) { console.error('loadPrivateChannelsFromDB failed:', e.message); }
 }
@@ -3970,21 +3970,32 @@ app.get('/private-watch', (req, res) => {
         currentHls = hls;
         hls.loadSource(proxyUrl);
         hls.attachMedia(video);
+        let _stallTimer = null;
+        const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
+        video.addEventListener('playing', _clearStall, { passive: true });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           loadingMsg.classList.remove('visible');
           setStatus('live', 'Streaming');
-          video.muted = false; updateVolIcon();
-          video.play().catch(() => { video.muted = true; updateVolIcon(); video.play().catch(()=>{}); });
+          video.muted = true; updateVolIcon();
+          video.play().catch(()=>{});
           buildQualityMenu(); updatePlayIcon();
+          _stallTimer = setTimeout(() => {
+            if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+              setStatus('offline', 'Stream not responding');
+              errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
+              errorMsg.classList.add('visible');
+            }
+          }, 12000);
         });
         hls.on(Hls.Events.LEVEL_LOADED, () => {
           if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (data.fatal) {
+            _clearStall();
             loadingMsg.classList.remove('visible');
             const isCodec = data.details && data.details.toLowerCase().includes('codec');
-            if (isCodec) { setStatus('offline','Codec not supported in preview'); showCodecError(); }
+            if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
             else {
               setStatus('offline','Stream error');
               errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
@@ -5193,21 +5204,32 @@ app.get('/watch', (req, res) => {
         currentHls = hls;
         hls.loadSource(proxyUrl);
         hls.attachMedia(video);
+        let _stallTimer = null;
+        const _clearStall = () => { if (_stallTimer) { clearTimeout(_stallTimer); _stallTimer = null; } };
+        video.addEventListener('playing', _clearStall, { passive: true });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           loadingMsg.classList.remove('visible');
           setStatus('live', 'Streaming');
-          video.muted = false; updateVolIcon();
-          video.play().catch(() => { video.muted = true; updateVolIcon(); video.play().catch(()=>{}); });
+          video.muted = true; updateVolIcon();
+          video.play().catch(()=>{});
           buildQualityMenu(); updatePlayIcon();
+          _stallTimer = setTimeout(() => {
+            if (video.readyState < 2 || (video.paused && video.currentTime === 0)) {
+              setStatus('offline', 'Stream not responding');
+              errorDetail.innerHTML = 'Stream loaded but no video frames received. Try another server or channel.';
+              errorMsg.classList.add('visible');
+            }
+          }, 12000);
         });
         hls.on(Hls.Events.LEVEL_LOADED, () => {
           if (hls.bandwidthEstimate > 0) kbpsLabel.textContent = Math.round(hls.bandwidthEstimate/1000) + ' kbps';
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (data.fatal) {
+            _clearStall();
             loadingMsg.classList.remove('visible');
             const isCodec = data.details && data.details.toLowerCase().includes('codec');
-            if (isCodec) { setStatus('offline','Codec not supported in preview'); showCodecError(); }
+            if (isCodec) { setStatus('offline','Codec not supported'); showCodecError(); }
             else {
               setStatus('offline','Stream error');
               errorDetail.innerHTML = 'Could not load this stream. Try another server or channel.';
