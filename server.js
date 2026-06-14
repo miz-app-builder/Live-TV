@@ -267,14 +267,18 @@ app.get('/proxy', async (req, res) => {
       // Strip CODECS so sandboxed browsers don't fail codec compatibility check
       manifest = manifest.replace(/,?\s*CODECS="[^"]*"/gi, '');
 
-      // Rewrite relative URLs in the manifest
-      manifest = manifest.replace(/^(?!#)(.+\.m3u8.*)$/gm, (match) => {
-        const t = match.trim();
-        if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
-        return '/proxy?url=' + encodeURIComponent(base + t);
+      // Rewrite URI="..." attributes inside tag lines (e.g. #EXT-X-KEY, #EXT-X-MEDIA)
+      manifest = manifest.replace(/(URI=")([^"]+)(")/g, (_, open, uri, close) => {
+        if (uri.startsWith('/proxy?url=')) return open + uri + close;
+        const abs = uri.startsWith('http') ? uri : base + uri;
+        return open + '/proxy?url=' + encodeURIComponent(abs) + close;
       });
-      manifest = manifest.replace(/^(?!#)(.+\.ts.*)$/gm, (match) => {
+
+      // Rewrite ALL non-comment, non-empty lines (variant streams, segments, etc.)
+      manifest = manifest.replace(/^(?!#)(.+)$/gm, (match) => {
         const t = match.trim();
+        if (!t) return match;
+        if (t.startsWith('/proxy?url=')) return match;
         if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
         return '/proxy?url=' + encodeURIComponent(base + t);
       });
