@@ -270,6 +270,77 @@ function fetchUrl(url, extraHeaders = {}, _redirects = 0) {
   });
 }
 
+// Rewrite manifest URLs to route through proxy
+function _rewriteManifest(bodyStr, baseUrl) {
+  const base = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
+  let manifest = bodyStr;
+  manifest = manifest.replace(/,?\s*CODECS="[^"]*"/gi, '');
+  manifest = manifest.replace(/(URI=")([^"]+)(")/g, (_, open, uri, close) => {
+    if (uri.startsWith('/proxy?url=')) return open + uri + close;
+    const abs = uri.startsWith('http') ? uri : base + uri;
+    return open + '/proxy?url=' + encodeURIComponent(abs) + close;
+  });
+  manifest = manifest.replace(/^(?!#)(.+)$/gm, (match) => {
+    const t = match.trim();
+    if (!t) return match;
+    if (t.startsWith('/proxy?url=')) return match;
+    if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
+    return '/proxy?url=' + encodeURIComponent(base + t);
+  });
+  return manifest;
+}
+
+// Pipe upstream response directly to client (no buffering — low latency for segments)
+function _pipeUpstream(url, extraHeaders, res, _redirects) {
+  if (_redirects === undefined) _redirects = 0;
+  return new Promise((resolve) => {
+    if (_redirects > 5) {
+      if (!res.headersSent) res.status(502).send('Too many redirects');
+      return resolve();
+    }
+    const lib = url.startsWith('https') ? https : http;
+    const req = lib.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', ...extraHeaders },
+      timeout: 15000
+    }, (upstream) => {
+      if (upstream.statusCode >= 300 && upstream.statusCode < 400 && upstream.headers.location) {
+        upstream.resume();
+        return _pipeUpstream(upstream.headers.location, extraHeaders, res, _redirects + 1).then(resolve);
+      }
+      if (upstream.statusCode >= 400) {
+        upstream.resume();
+        if (!res.headersSent) res.status(502).send('Upstream error ' + upstream.statusCode);
+        return resolve();
+      }
+      const ct = upstream.headers['content-type'] || '';
+      // If server says it's a manifest despite no .m3u8 in URL — buffer and rewrite
+      if (ct.includes('mpegurl') || ct.includes('x-mpegURL')) {
+        const chunks = [];
+        upstream.on('data', d => chunks.push(d));
+        upstream.on('end', () => {
+          const bodyStr = Buffer.concat(chunks).toString('utf8');
+          const manifest = _rewriteManifest(bodyStr, url);
+          res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.send(manifest);
+          resolve();
+        });
+        upstream.on('error', () => { if (!res.headersSent) res.status(502).send('Proxy stream error'); resolve(); });
+        return;
+      }
+      // Binary segment — pipe directly for lowest latency
+      res.setHeader('Content-Type', ct || 'video/MP2T');
+      res.setHeader('Cache-Control', 'no-cache');
+      if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
+      upstream.pipe(res);
+      upstream.on('end', resolve);
+      upstream.on('error', () => { if (!res.headersSent) res.status(502).send('Proxy stream error'); resolve(); });
+    });
+    req.on('timeout', () => { req.destroy(); if (!res.headersSent) res.status(502).send('Proxy timeout'); resolve(); });
+    req.on('error', () => { if (!res.headersSent) res.status(502).send('Proxy error'); resolve(); });
+  });
+}
+
 // Proxy route: /proxy?url=<encoded_url>
 app.get('/proxy', async (req, res) => {
   const targetUrl = req.query.url;
@@ -277,63 +348,39 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const decodedUrl = decodeURIComponent(targetUrl);
-    // Build Referer/Origin from the stream URL's origin so servers don't block us
     let streamOrigin = '';
     try { const u = new URL(decodedUrl); streamOrigin = u.origin; } catch(_) {}
-    const proxyHeaders = streamOrigin
+    const extraHeaders = streamOrigin
       ? { 'Referer': streamOrigin + '/', 'Origin': streamOrigin }
       : {};
-    const result = await fetchUrl(decodedUrl, proxyHeaders);
-    const contentType = result.headers['content-type'] || '';
 
-    // If upstream returned an error status, relay it immediately
-    if (result.status >= 400) {
-      return res.status(502).send('Upstream error ' + result.status);
-    }
-
-    const bodyStr = result.body.toString('utf8');
-    const isHls = targetUrl.includes('.m3u8') ||
-                  contentType.includes('mpegurl') ||
-                  contentType.includes('x-mpegURL') ||
-                  bodyStr.trimStart().startsWith('#EXTM3U');
-
-    // If it's an m3u8, rewrite segment URLs to go through proxy too
-    if (isHls) {
-      let manifest = bodyStr;
-      const base = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
-
-      // Strip CODECS so sandboxed browsers don't fail codec compatibility check
-      manifest = manifest.replace(/,?\s*CODECS="[^"]*"/gi, '');
-
-      // Rewrite URI="..." attributes inside tag lines (e.g. #EXT-X-KEY, #EXT-X-MEDIA)
-      manifest = manifest.replace(/(URI=")([^"]+)(")/g, (_, open, uri, close) => {
-        if (uri.startsWith('/proxy?url=')) return open + uri + close;
-        const abs = uri.startsWith('http') ? uri : base + uri;
-        return open + '/proxy?url=' + encodeURIComponent(abs) + close;
-      });
-
-      // Rewrite ALL non-comment, non-empty lines (variant streams, segments, etc.)
-      manifest = manifest.replace(/^(?!#)(.+)$/gm, (match) => {
-        const t = match.trim();
-        if (!t) return match;
-        if (t.startsWith('/proxy?url=')) return match;
-        if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
-        return '/proxy?url=' + encodeURIComponent(base + t);
-      });
-
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    // Manifest (.m3u8): buffer fully so we can rewrite segment URLs
+    const isManifestUrl = decodedUrl.toLowerCase().split('?')[0].includes('.m3u8');
+    if (isManifestUrl) {
+      const result = await fetchUrl(decodedUrl, extraHeaders);
+      if (result.status >= 400) return res.status(502).send('Upstream error ' + result.status);
+      const bodyStr = result.body.toString('utf8');
+      const ct = result.headers['content-type'] || '';
+      const trimmed = bodyStr.trimStart();
+      const isHls = trimmed.startsWith('#EXTM3U') || trimmed.startsWith('#EXT-X') ||
+                    ct.includes('mpegurl') || ct.includes('x-mpegURL');
+      if (isHls) {
+        const manifest = _rewriteManifest(bodyStr, decodedUrl);
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Cache-Control', 'no-cache');
+        return res.send(manifest);
+      }
+      res.setHeader('Content-Type', ct || 'application/octet-stream');
       res.setHeader('Cache-Control', 'no-cache');
-      return res.send(manifest);
+      return res.send(result.body);
     }
 
-    // For .ts segments and other binary — stream through directly
-    res.setHeader('Content-Type', contentType || 'video/MP2T');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.send(result.body);
+    // Segments & binary: pipe directly — no buffering, low latency
+    await _pipeUpstream(decodedUrl, extraHeaders, res);
 
   } catch (err) {
     console.error('Proxy error:', err.message);
-    res.status(502).send('Proxy fetch failed');
+    if (!res.headersSent) res.status(502).send('Proxy fetch failed');
   }
 });
 
