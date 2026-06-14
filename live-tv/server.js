@@ -17,6 +17,23 @@ const supabaseAdmin = createClient(
 
 let channels = [];
 let guestBlockedChannels = new Set();
+let privateChannels = [];
+
+async function loadPrivateChannelsFromDB() {
+  try {
+    let all = [], from = 0;
+    while (true) {
+      const { data, error } = await supabaseAdmin.from('private_channels').select('*').order('id').range(from, from + 999);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      all = all.concat(data);
+      if (data.length < 1000) break;
+      from += 1000;
+    }
+    privateChannels = all;
+    console.log(`Loaded ${privateChannels.length} private channels from DB`);
+  } catch(e) { console.error('loadPrivateChannelsFromDB failed:', e.message); }
+}
 
 function rebuildBlockedSet() {
   guestBlockedChannels = new Set(channels.filter(ch => !ch.visible_to_guests).map(ch => ch.id));
@@ -68,13 +85,10 @@ function _checkStreamUrl(url) {
 
 function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function runStreamHealthCheck() {
-  if (_healthRunning) return;
-  _healthRunning = true;
-  console.log('[Health] Stream check started —', channels.length, 'channels');
-  const updates = []; // { id, status }
-  for (let i = 0; i < channels.length; i += HEALTH_BATCH) {
-    const batch = channels.slice(i, i + HEALTH_BATCH);
+async function _runHealthCheckForList(arr, table) {
+  const updates = [];
+  for (let i = 0; i < arr.length; i += HEALTH_BATCH) {
+    const batch = arr.slice(i, i + HEALTH_BATCH);
     const results = await Promise.all(batch.map(ch => _checkStreamUrl(ch.stream_url)));
     results.forEach((ok, idx) => {
       const ch = batch[idx];
@@ -82,17 +96,25 @@ async function runStreamHealthCheck() {
       if (ch.status !== newStatus) updates.push({ id: ch.id, status: newStatus });
       ch.status = newStatus;
     });
-    if (i + HEALTH_BATCH < channels.length) await _sleep(HEALTH_DELAY_MS);
+    if (i + HEALTH_BATCH < arr.length) await _sleep(HEALTH_DELAY_MS);
   }
   if (updates.length) {
     const onIds  = updates.filter(u => u.status === 'Online').map(u => u.id);
     const offIds = updates.filter(u => u.status === 'Offline').map(u => u.id);
-    if (onIds.length)  await supabaseAdmin.from('channels').update({ status: 'Online'  }).in('id', onIds).catch(()=>{});
-    if (offIds.length) await supabaseAdmin.from('channels').update({ status: 'Offline' }).in('id', offIds).catch(()=>{});
-    console.log('[Health] Done —', onIds.length, 'Online,', offIds.length, 'Offline updated');
+    try { if (onIds.length)  await supabaseAdmin.from(table).update({ status: 'Online'  }).in('id', onIds); } catch(_) {}
+    try { if (offIds.length) await supabaseAdmin.from(table).update({ status: 'Offline' }).in('id', offIds); } catch(_) {}
+    console.log('[Health]', table, '—', onIds.length, 'Online,', offIds.length, 'Offline updated');
   } else {
-    console.log('[Health] Done — no status changes');
+    console.log('[Health]', table, '— no status changes');
   }
+}
+
+async function runStreamHealthCheck() {
+  if (_healthRunning) return;
+  _healthRunning = true;
+  console.log('[Health] Stream check started — channels:', channels.length, '| private:', privateChannels.length);
+  await _runHealthCheckForList(channels, 'channels');
+  await _runHealthCheckForList(privateChannels, 'private_channels');
   _healthRunning = false;
 }
 
@@ -245,14 +267,18 @@ app.get('/proxy', async (req, res) => {
       // Strip CODECS so sandboxed browsers don't fail codec compatibility check
       manifest = manifest.replace(/,?\s*CODECS="[^"]*"/gi, '');
 
-      // Rewrite relative URLs in the manifest
-      manifest = manifest.replace(/^(?!#)(.+\.m3u8.*)$/gm, (match) => {
-        const t = match.trim();
-        if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
-        return '/proxy?url=' + encodeURIComponent(base + t);
+      // Rewrite URI="..." attributes inside tag lines (e.g. #EXT-X-KEY, #EXT-X-MEDIA)
+      manifest = manifest.replace(/(URI=")([^"]+)(")/g, (_, open, uri, close) => {
+        if (uri.startsWith('/proxy?url=')) return open + uri + close;
+        const abs = uri.startsWith('http') ? uri : base + uri;
+        return open + '/proxy?url=' + encodeURIComponent(abs) + close;
       });
-      manifest = manifest.replace(/^(?!#)(.+\.ts.*)$/gm, (match) => {
+
+      // Rewrite ALL non-comment, non-empty lines (variant streams, segments, etc.)
+      manifest = manifest.replace(/^(?!#)(.+)$/gm, (match) => {
         const t = match.trim();
+        if (!t) return match;
+        if (t.startsWith('/proxy?url=')) return match;
         if (t.startsWith('http')) return '/proxy?url=' + encodeURIComponent(t);
         return '/proxy?url=' + encodeURIComponent(base + t);
       });
@@ -404,6 +430,7 @@ async function fetchSportsDBLogos() {
 
 fetchLogoMap().then(() => fetchSportsDBLogos());
 loadChannelsFromDB();
+loadPrivateChannelsFromDB();
 loadAppConfig();
 
 async function ensurePrivatePinColumn() {
@@ -647,8 +674,13 @@ app.post('/api/track/heartbeat', async (req, res) => {
 /* ── Presence ping (logged-in users browsing, no channel) ── */
 app.post('/api/track/presence', async (req, res) => {
   const authUser = await verifyUser(req);
-  if (authUser) activeUsers.set(authUser.id, Date.now());
-  res.json({ ok: !!authUser });
+  if (authUser) {
+    activeUsers.set(authUser.id, Date.now());
+  } else {
+    const guestKey = 'g_' + (req.headers['x-forwarded-for'] || req.ip || 'unknown');
+    activeUsers.set(guestKey, Date.now());
+  }
+  res.json({ ok: true });
 });
 
 /* ── Admin: live viewer count for a channel ─────────────── */
@@ -1259,12 +1291,16 @@ app.get('/api/user/private-channels', async (req, res) => {
         pcFromU += 1000;
         if (data.length < 1000) break;
       }
-      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
+      const pcStatusMapA = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
+      const withCountryA = allPcU.map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapA.get(ch.id) || ch.status || 'Offline' }));
       const gMapA = new Map();
       withCountryA.forEach(ch => {
         const key = ch.name.toLowerCase().trim();
         if (!gMapA.has(key)) gMapA.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
-        else gMapA.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+        else {
+          gMapA.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+          if (ch.status === 'Online') gMapA.get(key).status = 'Online';
+        }
       });
       return res.json({ channels: Array.from(gMapA.values()) });
     }
@@ -1280,12 +1316,16 @@ app.get('/api/user/private-channels', async (req, res) => {
     if (categories.length > 0) conditions.push(`category.in.(${categories.map(c => '"' + c + '"').join(',')})`);
     const { data, error } = await supabaseAdmin.from('private_channels').select('*').or(conditions.join(','));
     if (error) throw error;
-    const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '' }));
+    const pcStatusMapM = new Map(privateChannels.map(pc => [pc.id, pc.status || 'Offline']));
+    const withCountryM = (data || []).map(ch => ({ ...ch, country: ch.country || detectCountry(ch.name) || '', status: pcStatusMapM.get(ch.id) || ch.status || 'Offline' }));
     const gMapM = new Map();
     withCountryM.forEach(ch => {
       const key = ch.name.toLowerCase().trim();
       if (!gMapM.has(key)) gMapM.set(key, { ...ch, servers: [{ id: ch.id, url: ch.stream_url }] });
-      else gMapM.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+      else {
+        gMapM.get(key).servers.push({ id: ch.id, url: ch.stream_url });
+        if (ch.status === 'Online') gMapM.get(key).status = 'Online';
+      }
     });
     res.json({ channels: Array.from(gMapM.values()) });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -1772,7 +1812,7 @@ app.get('/admin', async (req, res) => {
   if (!token) window.location.href = '/login';
 
   let tabLoaded = {};
-  let _activeTab = 'dashboard';
+  let _activeTab = localStorage.getItem('admin_active_tab') || 'dashboard';
   let _autoRefreshTimer = null;
 
   function startAutoRefresh(tab) {
@@ -1786,20 +1826,24 @@ app.get('/admin', async (req, res) => {
     }
   }
 
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
+    const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+    const panel = document.getElementById('tab-' + tabName);
+    if (panel) panel.hidden = false;
+    _activeTab = tabName;
+    localStorage.setItem('admin_active_tab', tabName);
+    if (!tabLoaded[tabName]) { tabLoaded[tabName] = true; loadTab(tabName); }
+    startAutoRefresh(tabName);
+  }
+
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
-      btn.classList.add('active');
-      _activeTab = btn.dataset.tab;
-      document.getElementById('tab-' + btn.dataset.tab).hidden = false;
-      if (!tabLoaded[btn.dataset.tab]) { tabLoaded[btn.dataset.tab] = true; loadTab(btn.dataset.tab); }
-      startAutoRefresh(btn.dataset.tab);
-    });
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-  tabLoaded['dashboard'] = true;
-  loadTab('dashboard');
-  startAutoRefresh('dashboard');
+
+  switchTab(_activeTab);
 
   function loadTab(t) {
     if (t === 'dashboard') loadDashboard();
@@ -2985,12 +3029,15 @@ app.get('/', (req, res) => {
         } catch(_) {}
       }
       renderAuthUI(user, role);
-      if (user) {
-        const tok = localStorage.getItem('miz_token');
-        function sendPresence() { fetch('/api/track/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + tok } }).catch(()=>{}); }
-        sendPresence();
-        setInterval(sendPresence, 60000);
+      const tok = localStorage.getItem('miz_token');
+      function sendPresence() {
+        fetch('/api/track/presence', {
+          method: 'POST',
+          headers: tok ? { Authorization: 'Bearer ' + tok } : {}
+        }).catch(()=>{});
       }
+      sendPresence();
+      setInterval(sendPresence, 60000);
     }
     initAuth();
     loadChannels();
@@ -3346,6 +3393,10 @@ app.get('/private-tv', (req, res) => {
       pageItems.forEach(ch => {
         const card = document.createElement('div');
         card.className = 'grid-card';
+        const dot = document.createElement('span');
+        dot.className = 'grid-status-dot ' + (ch.status === 'Online' ? 'online' : 'offline');
+        dot.title = ch.status || 'Unknown';
+        card.appendChild(dot);
         const fallback = document.createElement('div');
         fallback.className = 'grid-logo';
         fallback.style.background = logoColor(ch.name);
