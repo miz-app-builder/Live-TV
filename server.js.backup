@@ -1136,10 +1136,6 @@ app.get('/login', (req, res) => {
   <title>Login — MIZ Live TV</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>${AUTH_PAGE_STYLE}</style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <div class="logo" onclick="location.href='/'">
@@ -1188,10 +1184,6 @@ app.get('/signup', (req, res) => {
   <title>Sign Up — MIZ Live TV</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>${AUTH_PAGE_STYLE}</style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <div class="logo" onclick="location.href='/'">
@@ -1609,10 +1601,6 @@ app.get('/admin', async (req, res) => {
       .back-btn{font-size:11px;padding:5px 10px}
     }
   </style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 <header>
@@ -2795,10 +2783,6 @@ app.get('/', (req, res) => {
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
   </style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <header>
@@ -3400,10 +3384,6 @@ app.get('/private-tv', (req, res) => {
     .user-item:hover { background: #2a2a2a; color: #fff; }
     .user-item.danger:hover { background: #e00; }
   </style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <header>
@@ -3904,10 +3884,6 @@ app.get('/private-watch', (req, res) => {
     .user-item:hover { background: #2a2a2a; color: #fff; }
     .user-item.danger:hover { background: #e00; }
   </style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <header>
@@ -5122,10 +5098,6 @@ app.get('/watch', (req, res) => {
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
   </style>
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 
