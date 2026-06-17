@@ -249,6 +249,12 @@ async function getUserRole(userId) {
 const LOGO_SVG = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="32" height="32" rx="8" fill="#e00"/><rect x="4" y="8" width="24" height="16" rx="3" fill="#fff" fill-opacity="0.15"/><rect x="4" y="8" width="24" height="16" rx="3" stroke="#fff" stroke-opacity="0.4" stroke-width="1"/><polygon points="13,12 13,20 21,16" fill="#fff"/><rect x="11" y="25" width="4" height="3" rx="1" fill="#e00" fill-opacity="0.7"/><rect x="17" y="25" width="4" height="3" rx="1" fill="#e00" fill-opacity="0.7"/><rect x="9" y="27" width="14" height="1.5" rx="0.75" fill="#e00" fill-opacity="0.5"/></svg>`;
 const LOGO_FULL_HTML = `${LOGO_SVG}<span style="font-size:18px;font-weight:700;letter-spacing:1px;color:#fff">MIZ <span style="color:#e00">Live</span> TV</span>`;
 
+// Vercel Speed Insights
+const SPEED_INSIGHTS_SCRIPT = `<script>
+  window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/speed-insights/script.js"></script>`;
+
 const SB_URL = process.env.SUPABASE_URL || '';
 const SB_KEY = process.env.SUPABASE_ANON_KEY || '';
 
@@ -1136,6 +1142,7 @@ app.get('/login', (req, res) => {
   <title>Login — MIZ Live TV</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>${AUTH_PAGE_STYLE}</style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
   <div class="logo" onclick="location.href='/'">
@@ -1184,6 +1191,7 @@ app.get('/signup', (req, res) => {
   <title>Sign Up — MIZ Live TV</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>${AUTH_PAGE_STYLE}</style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
   <div class="logo" onclick="location.href='/'">
@@ -1601,6 +1609,7 @@ app.get('/admin', async (req, res) => {
       .back-btn{font-size:11px;padding:5px 10px}
     }
   </style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
 <header>
@@ -2783,6 +2792,7 @@ app.get('/', (req, res) => {
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
   </style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
   <header>
@@ -3384,6 +3394,7 @@ app.get('/private-tv', (req, res) => {
     .user-item:hover { background: #2a2a2a; color: #fff; }
     .user-item.danger:hover { background: #e00; }
   </style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
   <header>
@@ -3884,6 +3895,7 @@ app.get('/private-watch', (req, res) => {
     .user-item:hover { background: #2a2a2a; color: #fff; }
     .user-item.danger:hover { background: #e00; }
   </style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
   <header>
@@ -5098,6 +5110,7 @@ app.get('/watch', (req, res) => {
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
   </style>
+${SPEED_INSIGHTS_SCRIPT}
 </head>
 <body>
 
