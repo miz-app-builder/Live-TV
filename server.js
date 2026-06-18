@@ -579,6 +579,39 @@ async function ensureActivityTables() {
 }
 ensureActivityTables();
 
+/* ── FIFA World Cup Fixtures API ─────────────────────── */
+let fixturesCache = { data: null, ts: 0 };
+app.get('/api/fixtures', async (req, res) => {
+  const now = Date.now();
+  if (fixturesCache.data && (now - fixturesCache.ts) < 60000) return res.json(fixturesCache.data);
+  try {
+    const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard');
+    const raw = await resp.json();
+    const matches = (raw.events || []).map(e => {
+      const comp = e.competitions[0];
+      const teams = comp.competitors;
+      const home = teams.find(t => t.homeAway === 'home') || teams[0];
+      const away = teams.find(t => t.homeAway === 'away') || teams[1];
+      const status = comp.status.type;
+      return {
+        id: e.id, date: e.date,
+        stage: (e.season && e.season.slug) ? e.season.slug : 'group-stage',
+        status: status.state,
+        detail: status.detail,
+        clock: comp.status.displayClock || '',
+        home: { name: home.team.displayName, short: home.team.abbreviation, logo: home.team.logo || '', score: home.score || '' },
+        away: { name: away.team.displayName, short: away.team.abbreviation, logo: away.team.logo || '', score: away.score || '' },
+      };
+    });
+    fixturesCache = { data: { matches }, ts: now };
+    res.json({ matches });
+  } catch(err) {
+    console.error('[fixtures]', err.message);
+    if (fixturesCache.data) return res.json(fixturesCache.data);
+    res.json({ matches: [] });
+  }
+});
+
 /* ── Logo fallback API (SportsDB on-demand) ───────────── */
 app.get('/api/logo-fallback', async (req, res) => {
   const name = (req.query.name || '').trim();
@@ -2669,6 +2702,59 @@ app.get('/', (req, res) => {
     .grid-status-dot.online  { background: #33dd77; box-shadow: 0 0 5px #33dd77; }
     .grid-status-dot.offline { background: #444; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
+    /* ── FIFA Fixture section ── */
+    #fixture-section {
+      width: 100%; max-width: 960px; margin-bottom: 16px;
+      background: linear-gradient(135deg, #05100a 0%, #0f0f0f 100%);
+      border: 1px solid #0d3020; border-radius: 14px;
+      padding: 16px 20px 18px;
+    }
+    .fixture-header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    }
+    .fixture-title {
+      font-size: 12px; font-weight: 800; color: #00cc55;
+      letter-spacing: 2px; text-transform: uppercase;
+    }
+    .fixture-subtitle { margin-left: auto; font-size: 11px; color: #555; }
+    .fixture-grid {
+      display: flex; gap: 10px; flex-wrap: nowrap;
+      overflow-x: auto; padding-bottom: 6px;
+      scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .fixture-grid::-webkit-scrollbar { display: none; }
+    .fixture-card {
+      background: #0a1a10; border: 1.5px solid #153520;
+      border-radius: 12px; padding: 12px 14px 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      min-width: 155px; flex-shrink: 0;
+      transition: border-color .15s, transform .15s;
+    }
+    .fixture-card:hover { border-color: #00cc55; transform: translateY(-3px); box-shadow: 0 4px 18px rgba(0,180,70,.2); }
+    .fixture-card.fc-live { border-color: #e00; background: #160808; }
+    .fixture-card.fc-live:hover { border-color: #ff4444; }
+    .fixture-stage {
+      font-size: 9px; color: #446655; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .fixture-teams {
+      display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center;
+    }
+    .fixture-team {
+      display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0;
+    }
+    .fixture-team img { width: 30px; height: 30px; object-fit: contain; }
+    .fixture-team-name {
+      font-size: 10px; color: #bbb; font-weight: 600; text-align: center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52px;
+    }
+    .fixture-score-box { display: flex; align-items: center; gap: 3px; }
+    .fixture-score { font-size: 20px; font-weight: 900; color: #fff; min-width: 14px; text-align: center; }
+    .fixture-sep { font-size: 12px; color: #444; font-weight: 700; }
+    .fixture-vs { font-size: 12px; color: #555; font-weight: 700; }
+    .fixture-status { font-size: 10px; font-weight: 700; text-align: center; }
+    .fixture-status.fc-live { color: #ff3333; }
+    .fixture-status.fc-post { color: #556655; }
+    .fixture-status.fc-pre { color: #778899; }
     /* ── LIVE NOW section ── */
     #live-section {
       width: 100%; max-width: 960px;
@@ -2789,6 +2875,13 @@ app.get('/', (req, res) => {
     <h1 id="miz-logo" style="cursor:pointer;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:8px">${LOGO_FULL_HTML}</h1>
     <div id="auth-area"></div>
   </header>
+  <div id="fixture-section" style="display:none">
+    <div class="fixture-header">
+      <span class="fixture-title">⚽ FIFA World Cup 2026</span>
+      <span class="fixture-subtitle" id="fixture-subtitle">Today's Matches</span>
+    </div>
+    <div class="fixture-grid" id="fixture-grid"></div>
+  </div>
   <div id="live-section">
     <div class="live-header">
       <span class="live-pulse"></span>
@@ -3058,6 +3151,62 @@ app.get('/', (req, res) => {
         gridChannels.innerHTML = '<div class="no-results" style="grid-column:1/-1;color:#a33;">Failed to load channels.</div>';
       }
     }
+
+    /* ── FIFA Fixtures ─────────────────────────── */
+    function hideImg(el) { el.style.display = 'none'; }
+    async function loadFixtures() {
+      try {
+        const r = await fetch('/api/fixtures');
+        const data = await r.json();
+        renderFixtures(data.matches || []);
+      } catch(e) { console.warn('[fixtures]', e); }
+    }
+    function renderFixtures(matches) {
+      const section = document.getElementById('fixture-section');
+      const grid = document.getElementById('fixture-grid');
+      if (!matches.length) { section.style.display = 'none'; return; }
+      section.style.display = '';
+      const liveCount = matches.filter(m => m.status === 'in').length;
+      const sub = document.getElementById('fixture-subtitle');
+      if (sub) sub.textContent = liveCount ? liveCount + ' Live · ' + matches.length + ' Matches' : matches.length + ' Matches Today';
+      grid.innerHTML = matches.map(m => {
+        const isLive = m.status === 'in';
+        const isPost = m.status === 'post';
+        const stageLabel = (m.stage || '').replace(/-/g,' ').replace(/\b\w/g, l => l.toUpperCase());
+        let statusText, statusCls;
+        if (isLive) {
+          statusText = '🔴 ' + (m.clock || m.detail || 'LIVE');
+          statusCls = 'fc-live';
+        } else if (isPost) {
+          statusText = 'Full Time';
+          statusCls = 'fc-post';
+        } else {
+          const d = new Date(m.date);
+          statusText = d.toLocaleTimeString('en-BD', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit' }) + ' BST';
+          statusCls = 'fc-pre';
+        }
+        const scoreHtml = (isLive || isPost)
+          ? '<span class="fixture-score">' + m.home.score + '</span><span class="fixture-sep">-</span><span class="fixture-score">' + m.away.score + '</span>'
+          : '<span class="fixture-vs">vs</span>';
+        return '<div class="fixture-card' + (isLive ? ' fc-live' : '') + '">' +
+          '<span class="fixture-stage">' + stageLabel + '</span>' +
+          '<div class="fixture-teams">' +
+            '<div class="fixture-team">' +
+              (m.home.logo ? '<img src="' + m.home.logo + '" alt="' + m.home.short + '" loading="lazy" onerror="hideImg(this)">' : '') +
+              '<span class="fixture-team-name">' + m.home.short + '</span>' +
+            '</div>' +
+            '<div class="fixture-score-box">' + scoreHtml + '</div>' +
+            '<div class="fixture-team">' +
+              (m.away.logo ? '<img src="' + m.away.logo + '" alt="' + m.away.short + '" loading="lazy" onerror="hideImg(this)">' : '') +
+              '<span class="fixture-team-name">' + m.away.short + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<span class="fixture-status ' + statusCls + '">' + statusText + '</span>' +
+        '</div>';
+      }).join('');
+    }
+    loadFixtures();
+    setInterval(loadFixtures, 60000);
 
     /* ── Auth & Guest Timer ────────────────────── */
     const GUEST_LIMIT = ${(parseInt(appConfig.guest_limit_minutes) || 5) * 60 * 1000};
