@@ -14,7 +14,7 @@ if not token:
     print('GITHUB_TOKEN not set, skipping push.')
     sys.exit(0)
 
-FILES = ['server.js', 'live-tv/server.js', 'render.yaml', 'scripts/post-merge.sh']
+FILES = ['server.js', 'live-tv/server.js', 'Dockerfile', 'scripts/post-merge.sh']
 
 for filepath in FILES:
     if not os.path.exists(filepath):
