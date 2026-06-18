@@ -2707,54 +2707,114 @@ app.get('/', (req, res) => {
       width: 100%; max-width: 960px; margin-bottom: 16px;
       background: linear-gradient(135deg, #05100a 0%, #0f0f0f 100%);
       border: 1px solid #0d3020; border-radius: 14px;
-      padding: 16px 20px 18px;
+      padding: 14px 20px;
+      transition: padding .3s ease;
     }
+    #fixture-section.fc-open { padding-bottom: 18px; }
     .fixture-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; user-select: none; -webkit-user-select: none;
+      flex-wrap: nowrap; min-width: 0;
     }
     .fixture-title {
       font-size: 12px; font-weight: 800; color: #00cc55;
-      letter-spacing: 2px; text-transform: uppercase;
+      letter-spacing: 2px; text-transform: uppercase; flex-shrink: 0;
     }
-    .fixture-subtitle { margin-left: auto; font-size: 11px; color: #555; }
-    .fixture-grid {
-      display: flex; gap: 10px; flex-wrap: nowrap;
-      overflow-x: auto; padding-bottom: 6px;
+    .fixture-chips {
+      display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto;
+      flex: 1; min-width: 0;
       scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .fixture-chips::-webkit-scrollbar { display: none; }
+    .fc-open .fixture-chips { display: none; }
+    .fixture-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #0d1e12; border: 1px solid #1a3a22;
+      border-radius: 20px; padding: 3px 8px; flex-shrink: 0;
+      font-size: 10px; font-weight: 700; color: #aaa; white-space: nowrap;
+    }
+    .fixture-chip.chip-live { border-color: #e00; color: #ff5555; background: #1a0606; }
+    .fixture-chip.chip-post { color: #667; }
+    .fixture-chip-dot {
+      width: 5px; height: 5px; border-radius: 50%; background: #e00;
+      animation: livePulse 1.1s ease-in-out infinite; flex-shrink: 0;
+    }
+    .fixture-toggle {
+      font-size: 11px; color: #446655; flex-shrink: 0; margin-left: 4px;
+      transition: transform .3s ease;
+    }
+    .fc-open .fixture-toggle { transform: rotate(180deg); }
+    .fixture-grid-wrap {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height .35s ease;
+    }
+    .fc-open .fixture-grid-wrap { max-height: 240px; }
+    .fixture-grid-inner {
+      display: flex; gap: 10px; flex-wrap: nowrap;
+      overflow-x: auto; padding: 14px 0 6px;
+      scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .fixture-grid-inner::-webkit-scrollbar { display: none; }
+    .fixture-grid-outer {
+      display: flex; justify-content: center;
+      overflow-x: auto; padding: 14px 0 6px;
+      scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .fixture-grid-outer::-webkit-scrollbar { display: none; }
+    .fixture-grid {
+      display: inline-flex; gap: 12px; flex-wrap: nowrap;
     }
     .fixture-grid::-webkit-scrollbar { display: none; }
     .fixture-card {
-      background: #0a1a10; border: 1.5px solid #153520;
-      border-radius: 12px; padding: 12px 14px 10px;
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
-      min-width: 155px; flex-shrink: 0;
-      transition: border-color .15s, transform .15s;
+      background: #0a1a10; border: 1.5px solid #1a3a22;
+      border-radius: 14px; padding: 14px 16px 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      min-width: 170px; flex-shrink: 0;
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+      position: relative;
     }
-    .fixture-card:hover { border-color: #00cc55; transform: translateY(-3px); box-shadow: 0 4px 18px rgba(0,180,70,.2); }
-    .fixture-card.fc-live { border-color: #e00; background: #160808; }
-    .fixture-card.fc-live:hover { border-color: #ff4444; }
+    .fixture-card:hover { border-color: #00cc55; transform: translateY(-4px); box-shadow: 0 6px 22px rgba(0,180,70,.18); }
+    .fixture-card.fc-live { border-color: #cc0000; background: linear-gradient(135deg, #180808 0%, #0f0f0f 100%); }
+    .fixture-card.fc-live:hover { border-color: #ff4444; box-shadow: 0 6px 22px rgba(220,0,0,.22); }
     .fixture-stage {
-      font-size: 9px; color: #446655; text-transform: uppercase; letter-spacing: 1px;
+      font-size: 8.5px; color: #2a5540; text-transform: uppercase;
+      letter-spacing: 1.2px; font-weight: 700;
     }
     .fixture-teams {
-      display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center;
+      display: flex; align-items: center; gap: 0; width: 100%; justify-content: space-between;
     }
     .fixture-team {
-      display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      width: 56px; flex-shrink: 0;
     }
-    .fixture-team img { width: 30px; height: 30px; object-fit: contain; }
+    .fixture-team img {
+      width: 34px; height: 34px; object-fit: contain;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,.4));
+    }
     .fixture-team-name {
-      font-size: 10px; color: #bbb; font-weight: 600; text-align: center;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52px;
+      font-size: 11px; color: #ccc; font-weight: 700; text-align: center;
+      white-space: nowrap;
     }
-    .fixture-score-box { display: flex; align-items: center; gap: 3px; }
-    .fixture-score { font-size: 20px; font-weight: 900; color: #fff; min-width: 14px; text-align: center; }
-    .fixture-sep { font-size: 12px; color: #444; font-weight: 700; }
-    .fixture-vs { font-size: 12px; color: #555; font-weight: 700; }
-    .fixture-status { font-size: 10px; font-weight: 700; text-align: center; }
-    .fixture-status.fc-live { color: #ff3333; }
-    .fixture-status.fc-post { color: #556655; }
-    .fixture-status.fc-pre { color: #778899; }
+    .fixture-mid {
+      display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1;
+    }
+    .fixture-score-box { display: flex; align-items: center; gap: 5px; }
+    .fixture-score { font-size: 22px; font-weight: 900; color: #fff; min-width: 16px; text-align: center; line-height: 1; }
+    .fixture-sep { font-size: 14px; color: #334433; font-weight: 900; }
+    .fixture-vs { font-size: 11px; color: #334433; font-weight: 800; letter-spacing: 1px; }
+    .fixture-divider { width: 1px; height: 28px; background: #1a3a22; margin: 0 2px; }
+    .fixture-status {
+      font-size: 10px; font-weight: 700; text-align: center;
+      white-space: nowrap; padding: 3px 8px;
+      border-radius: 20px; background: #0d1a10;
+    }
+    .fixture-status.fc-live {
+      color: #ff4444; background: rgba(200,0,0,.12);
+      border: 1px solid rgba(200,0,0,.2);
+    }
+    .fixture-status.fc-post { color: #3a5545; background: transparent; }
+    .fixture-status.fc-pre { color: #4a6a7a; background: transparent; }
     /* ── LIVE NOW section ── */
     #live-section {
       width: 100%; max-width: 960px;
@@ -2876,11 +2936,16 @@ app.get('/', (req, res) => {
     <div id="auth-area"></div>
   </header>
   <div id="fixture-section" style="display:none">
-    <div class="fixture-header">
+    <div class="fixture-header" id="fixture-toggle-btn">
       <span class="fixture-title">⚽ FIFA World Cup 2026</span>
-      <span class="fixture-subtitle" id="fixture-subtitle">Today's Matches</span>
+      <div class="fixture-chips" id="fixture-chips"></div>
+      <span class="fixture-toggle" id="fixture-arrow">▼</span>
     </div>
-    <div class="fixture-grid" id="fixture-grid"></div>
+    <div class="fixture-grid-wrap" id="fixture-grid-wrap">
+      <div class="fixture-grid-outer">
+        <div class="fixture-grid" id="fixture-grid"></div>
+      </div>
+    </div>
   </div>
   <div id="live-section">
     <div class="live-header">
@@ -3154,6 +3219,34 @@ app.get('/', (req, res) => {
 
     /* ── FIFA Fixtures ─────────────────────────── */
     function hideImg(el) { el.style.display = 'none'; }
+    let _fcOpen = false;
+
+    function setFcOpen(open) {
+      _fcOpen = open;
+      const section = document.getElementById('fixture-section');
+      if (section) {
+        if (open) section.classList.add('fc-open');
+        else section.classList.remove('fc-open');
+      }
+    }
+
+    document.getElementById('fixture-toggle-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      setFcOpen(!_fcOpen);
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!_fcOpen) return;
+      const section = document.getElementById('fixture-section');
+      if (section && !section.contains(e.target)) setFcOpen(false);
+    });
+
+    document.addEventListener('touchstart', function(e) {
+      if (!_fcOpen) return;
+      const section = document.getElementById('fixture-section');
+      if (section && !section.contains(e.target)) setFcOpen(false);
+    }, { passive: true });
+
     async function loadFixtures() {
       try {
         const r = await fetch('/api/fixtures');
@@ -3161,14 +3254,34 @@ app.get('/', (req, res) => {
         renderFixtures(data.matches || []);
       } catch(e) { console.warn('[fixtures]', e); }
     }
+
     function renderFixtures(matches) {
       const section = document.getElementById('fixture-section');
       const grid = document.getElementById('fixture-grid');
+      const chips = document.getElementById('fixture-chips');
       if (!matches.length) { section.style.display = 'none'; return; }
       section.style.display = '';
-      const liveCount = matches.filter(m => m.status === 'in').length;
-      const sub = document.getElementById('fixture-subtitle');
-      if (sub) sub.textContent = liveCount ? liveCount + ' Live · ' + matches.length + ' Matches' : matches.length + ' Matches Today';
+      setFcOpen(_fcOpen);
+
+      chips.innerHTML = matches.map(m => {
+        const isLive = m.status === 'in';
+        const isPost = m.status === 'post';
+        let label, chipCls;
+        if (isLive) {
+          label = '<span class="fixture-chip-dot"></span>' + m.home.short + ' ' + m.home.score + '·' + m.away.score + ' ' + m.away.short;
+          chipCls = 'chip-live';
+        } else if (isPost) {
+          label = m.home.short + ' ' + m.home.score + '·' + m.away.score + ' ' + m.away.short;
+          chipCls = 'chip-post';
+        } else {
+          const d = new Date(m.date);
+          const t = d.toLocaleTimeString('en-BD', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit' });
+          label = m.home.short + ' vs ' + m.away.short + ' ' + t;
+          chipCls = '';
+        }
+        return '<span class="fixture-chip ' + chipCls + '">' + label + '</span>';
+      }).join('');
+
       grid.innerHTML = matches.map(m => {
         const isLive = m.status === 'in';
         const isPost = m.status === 'post';
@@ -3195,7 +3308,9 @@ app.get('/', (req, res) => {
               (m.home.logo ? '<img src="' + m.home.logo + '" alt="' + m.home.short + '" loading="lazy" onerror="hideImg(this)">' : '') +
               '<span class="fixture-team-name">' + m.home.short + '</span>' +
             '</div>' +
-            '<div class="fixture-score-box">' + scoreHtml + '</div>' +
+            '<div class="fixture-mid">' +
+              '<div class="fixture-score-box">' + scoreHtml + '</div>' +
+            '</div>' +
             '<div class="fixture-team">' +
               (m.away.logo ? '<img src="' + m.away.logo + '" alt="' + m.away.short + '" loading="lazy" onerror="hideImg(this)">' : '') +
               '<span class="fixture-team-name">' + m.away.short + '</span>' +
