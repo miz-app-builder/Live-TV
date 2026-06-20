@@ -599,17 +599,9 @@ async function ensureCategoriesTable() {
       body: JSON.stringify({ query: sql })
     });
     console.log('categories table ensured');
-    const { data: existing } = await supabaseAdmin.from('categories').select('id').limit(1);
-    if (!existing || existing.length === 0) {
-      const { data: cfg } = await supabaseAdmin.from('app_config').select('value').eq('key', 'categories').single();
-      let cats = DEFAULT_CATEGORIES;
-      if (cfg && cfg.value) {
-        try { cats = typeof cfg.value === 'string' ? JSON.parse(cfg.value) : cfg.value; } catch(_) {}
-      }
-      const rows = cats.map((c, i) => ({ name: c.name, emoji: c.emoji || '📺', sort_order: i }));
-      await supabaseAdmin.from('categories').upsert(rows, { onConflict: 'name' });
-      console.log('categories seeded:', rows.length);
-    }
+    const defaultRows = DEFAULT_CATEGORIES.map((c, i) => ({ name: c.name, emoji: c.emoji || '📺', sort_order: i }));
+    await supabaseAdmin.from('categories').upsert(defaultRows, { onConflict: 'name', ignoreDuplicates: true });
+    console.log('categories seeded/verified:', defaultRows.length);
   } catch(e) { console.error('ensureCategoriesTable:', e.message); }
 }
 ensureCategoriesTable();
@@ -1939,13 +1931,6 @@ app.get('/admin', async (req, res) => {
       <option value="Private">🔒 Private</option>
       <option value="VIP">⭐ VIP</option>
       <option value="Premium">💎 Premium</option>
-      <option value="Bangla">🇧🇩 Bangla</option>
-      <option value="News">📰 News</option>
-      <option value="Movies">🎬 Movies</option>
-      <option value="Music">🎵 Music</option>
-      <option value="Sports">⚽ Sports</option>
-      <option value="FIFA">🏆 FIFA</option>
-      <option value="International">🌍 International</option>
     </select>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Country</label>
     <select class="cat-select" id="pc-country" style="width:100%;margin-bottom:10px;padding:10px 14px">
@@ -2269,6 +2254,13 @@ app.get('/admin', async (req, res) => {
       bulkSel.innerHTML = '<option value="All">🔍 All Categories</option>' +
         _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
       if ([...bulkSel.options].some(o=>o.value===cur)) bulkSel.value = cur;
+    }
+    const pcCat = document.getElementById('pc-cat');
+    if (pcCat) {
+      const cur = pcCat.value;
+      const staticOpts = '<option value="Private">🔒 Private</option><option value="VIP">⭐ VIP</option><option value="Premium">💎 Premium</option>';
+      pcCat.innerHTML = staticOpts + _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
+      if (cur && [...pcCat.options].some(o=>o.value===cur)) pcCat.value = cur;
     }
     buildCatCheckboxes('edit-cat-wrap', '');
     buildCatCheckboxes('add-cat-wrap', '');
