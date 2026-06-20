@@ -579,6 +579,41 @@ async function ensureActivityTables() {
 }
 ensureActivityTables();
 
+async function ensureCategoriesTable() {
+  try {
+    const ref = (process.env.SUPABASE_URL || '').match(/https?:\/\/([^.]+)/)?.[1];
+    const tok = process.env.SUPABASE_ACCESS_TOKEN;
+    if (!ref || !tok) return;
+    const sql = `
+      CREATE TABLE IF NOT EXISTS public.categories (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        emoji TEXT NOT NULL DEFAULT '📺',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `;
+    await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: sql })
+    });
+    console.log('categories table ensured');
+    const { data: existing } = await supabaseAdmin.from('categories').select('id').limit(1);
+    if (!existing || existing.length === 0) {
+      const { data: cfg } = await supabaseAdmin.from('app_config').select('value').eq('key', 'categories').single();
+      let cats = DEFAULT_CATEGORIES;
+      if (cfg && cfg.value) {
+        try { cats = typeof cfg.value === 'string' ? JSON.parse(cfg.value) : cfg.value; } catch(_) {}
+      }
+      const rows = cats.map((c, i) => ({ name: c.name, emoji: c.emoji || '📺', sort_order: i }));
+      await supabaseAdmin.from('categories').upsert(rows, { onConflict: 'name' });
+      console.log('categories seeded:', rows.length);
+    }
+  } catch(e) { console.error('ensureCategoriesTable:', e.message); }
+}
+ensureCategoriesTable();
+
 /* ── FIFA World Cup Fixtures API ─────────────────────── */
 const fixturesCacheMap = {};
 app.get('/api/fixtures', async (req, res) => {
@@ -1039,25 +1074,21 @@ const DEFAULT_CATEGORIES = [
   {name:'Kids',emoji:'👶'},{name:'Sports',emoji:'⚽'},
   {name:'FIFA',emoji:'🏆'},{name:'International',emoji:'🌍'}
 ];
-function getCategories() {
-  try { const r = appConfig['categories']; if (r) return JSON.parse(r); } catch(_) {}
+async function getCategories() {
+  try {
+    const { data } = await supabaseAdmin.from('categories').select('name,emoji').order('sort_order', { ascending: true });
+    if (data && data.length > 0) return data;
+  } catch(_) {}
   return DEFAULT_CATEGORIES;
 }
 app.get('/api/categories', async (req, res) => {
-  try {
-    const { data } = await supabaseAdmin.from('app_config').select('value').eq('key', 'categories').single();
-    if (data && data.value) {
-      const cats = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-      if (Array.isArray(cats) && cats.length > 0) return res.json({ categories: cats });
-    }
-  } catch(_) {}
-  res.json({ categories: DEFAULT_CATEGORIES });
+  res.json({ categories: await getCategories() });
 });
 app.get('/api/admin/categories', async (req, res) => {
   const user = await verifyUser(req);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  res.json({ categories: getCategories() });
+  res.json({ categories: await getCategories() });
 });
 app.post('/api/admin/categories/add', async (req, res) => {
   const user = await verifyUser(req);
@@ -1065,14 +1096,12 @@ app.post('/api/admin/categories/add', async (req, res) => {
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   const { name, emoji } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const cats = getCategories();
-  if (cats.find(c => c.name.toLowerCase() === name.toLowerCase()))
-    return res.status(400).json({ error: 'Category already exists' });
-  cats.push({ name: name.trim(), emoji: emoji || '📺' });
-  const val = JSON.stringify(cats);
-  appConfig['categories'] = val;
-  await supabaseAdmin.from('app_config').upsert({ key: 'categories', value: val, updated_at: new Date().toISOString() });
-  res.json({ success: true, categories: cats });
+  const { data: existing } = await supabaseAdmin.from('categories').select('id').ilike('name', name).single();
+  if (existing) return res.status(400).json({ error: 'Category already exists' });
+  const { data: last } = await supabaseAdmin.from('categories').select('sort_order').order('sort_order', { ascending: false }).limit(1).single();
+  const sort_order = last ? last.sort_order + 1 : 0;
+  await supabaseAdmin.from('categories').insert({ name: name.trim(), emoji: emoji || '📺', sort_order });
+  res.json({ success: true, categories: await getCategories() });
 });
 app.post('/api/admin/categories/delete', async (req, res) => {
   const user = await verifyUser(req);
@@ -1080,11 +1109,8 @@ app.post('/api/admin/categories/delete', async (req, res) => {
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const cats = getCategories().filter(c => c.name !== name);
-  const val = JSON.stringify(cats);
-  appConfig['categories'] = val;
-  await supabaseAdmin.from('app_config').upsert({ key: 'categories', value: val, updated_at: new Date().toISOString() });
-  res.json({ success: true, categories: cats });
+  await supabaseAdmin.from('categories').delete().eq('name', name);
+  res.json({ success: true, categories: await getCategories() });
 });
 
 /* ── FFmpeg Transcoding ────────────────────────────────── */
@@ -1838,10 +1864,8 @@ app.get('/admin', async (req, res) => {
     <input class="url-input" id="edit-name" placeholder="Channel Name" style="margin-bottom:10px" />
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Stream URL</label>
     <input class="url-input" id="edit-url" placeholder="https://example.com/stream/index.m3u8" style="margin-bottom:10px" />
-    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category</label>
-    <select class="cat-select" id="edit-cat" style="width:100%;margin-bottom:12px;padding:10px 14px">
-      <option value="International">🌍 International</option>
-    </select>
+    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category (multiple select করা যাবে)</label>
+    <div id="edit-cat-wrap" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;margin-bottom:12px;max-height:140px;overflow-y:auto"></div>
     <div class="url-btns">
       <button class="act-btn" onclick="document.getElementById('edit-modal').classList.remove('open')">Cancel</button>
       <button class="act-btn act-green" onclick="saveEdit()">💾 Save Changes</button>
@@ -1857,10 +1881,12 @@ app.get('/admin', async (req, res) => {
     <input class="url-input" id="add-name" placeholder="e.g. Jamuna TV" style="margin-bottom:10px" />
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Stream URL *</label>
     <input class="url-input" id="add-url" placeholder="https://example.com/stream/index.m3u8" style="margin-bottom:10px" />
-    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category</label>
-    <select class="cat-select" id="add-cat" style="width:100%;margin-bottom:10px;padding:10px 14px">
-      <option value="">Auto-detect</option>
-    </select>
+    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category (multiple select করা যাবে)</label>
+    <div id="add-cat-wrap" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;margin-bottom:10px;max-height:140px;overflow-y:auto">
+      <label style="display:flex;align-items:center;gap:5px;background:#1a1a1a;border:1px solid #333;border-radius:20px;padding:4px 10px;cursor:pointer;font-size:12px;color:#aaa">
+        <input type="checkbox" value="" style="accent-color:#e00" /> Auto-detect
+      </label>
+    </div>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Country</label>
     <select class="cat-select" id="add-country" style="width:100%;margin-bottom:12px;padding:10px 14px">
       <option value="">Auto-detect</option>
@@ -2212,6 +2238,29 @@ app.get('/admin', async (req, res) => {
   ];
   const CAT_EMOJI = {};
 
+  function buildCatCheckboxes(wrapId, selectedCats) {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return;
+    const selected = (selectedCats || '').split(',').map(s => s.trim()).filter(Boolean);
+    wrap.innerHTML = _adminCats.map(c => {
+      const checked = selected.includes(c.name) ? 'checked' : '';
+      const activeStyle = checked ? 'background:#1a2e1a;border-color:#2a5a2a;color:#4caf50' : 'background:#1a1a1a;border-color:#333;color:#aaa';
+      return \`<label style="display:flex;align-items:center;gap:5px;\${activeStyle};border:1px solid;border-radius:20px;padding:4px 10px;cursor:pointer;font-size:12px;transition:all .15s" onclick="this.querySelector('input').click();updateCatLabel(this)">
+        <input type="checkbox" value="\${c.name}" \${checked} style="accent-color:#4caf50;display:none" />
+        \${c.emoji} \${c.name}
+      </label>\`;
+    }).join('');
+  }
+  function updateCatLabel(lbl) {
+    const cb = lbl.querySelector('input');
+    if (cb.checked) { lbl.style.background='#1a2e1a'; lbl.style.borderColor='#2a5a2a'; lbl.style.color='#4caf50'; }
+    else { lbl.style.background='#1a1a1a'; lbl.style.borderColor='#333'; lbl.style.color='#aaa'; }
+  }
+  function getCheckedCats(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return '';
+    return [...wrap.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value).filter(Boolean).join(',');
+  }
   function populateCatDropdowns() {
     _adminCats.forEach(c => { CAT_EMOJI[c.name] = c.emoji; });
     const bulkSel = document.getElementById('bulk-cat');
@@ -2221,14 +2270,8 @@ app.get('/admin', async (req, res) => {
         _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
       if ([...bulkSel.options].some(o=>o.value===cur)) bulkSel.value = cur;
     }
-    ['edit-cat','add-cat'].forEach(id => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-      const cur = sel.value;
-      const prefix = id === 'add-cat' ? '<option value="">Auto-detect</option>' : '';
-      sel.innerHTML = prefix + _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
-      if (cur && [...sel.options].some(o=>o.value===cur)) sel.value = cur;
-    });
+    buildCatCheckboxes('edit-cat-wrap', '');
+    buildCatCheckboxes('add-cat-wrap', '');
   }
 
   async function initCategories() {
@@ -2446,13 +2489,13 @@ app.get('/admin', async (req, res) => {
     document.getElementById('edit-ch-name-title').textContent = ch.name;
     document.getElementById('edit-name').value = ch.name;
     document.getElementById('edit-url').value = ch.stream_url || '';
-    document.getElementById('edit-cat').value = ch.category || 'International';
+    buildCatCheckboxes('edit-cat-wrap', ch.category || '');
     document.getElementById('edit-modal').classList.add('open');
   }
   async function saveEdit() {
     const channel_name = document.getElementById('edit-name').value.trim();
     const stream_url = document.getElementById('edit-url').value.trim();
-    const category = document.getElementById('edit-cat').value;
+    const category = getCheckedCats('edit-cat-wrap') || undefined;
     if (!channel_name || !stream_url) { showMsg('Name and URL required', false); return; }
     const r = await fetch('/api/admin/channels/' + _editChId, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
@@ -2503,14 +2546,14 @@ app.get('/admin', async (req, res) => {
   function openAddModal() {
     document.getElementById('add-name').value = '';
     document.getElementById('add-url').value = '';
-    document.getElementById('add-cat').value = '';
     document.getElementById('add-country').value = '';
+    buildCatCheckboxes('add-cat-wrap', '');
     document.getElementById('add-modal').classList.add('open');
   }
   async function addChannel() {
     const channel_name = document.getElementById('add-name').value.trim();
     const stream_url = document.getElementById('add-url').value.trim();
-    const category = document.getElementById('add-cat').value || undefined;
+    const category = getCheckedCats('add-cat-wrap') || undefined;
     const country = document.getElementById('add-country').value || undefined;
     if (!channel_name || !stream_url) { showMsg('Name and URL required', false); return; }
     const r = await fetch('/api/admin/channels/new', {
@@ -3437,11 +3480,15 @@ app.get('/', (req, res) => {
       }
     }
 
+    function chMatchesCat(c, cat) {
+      const cats = (c.category || '').split(',').map(s => s.trim()).filter(Boolean);
+      return cats.includes(cat) || categorize(c.channel_name) === cat;
+    }
     function getFiltered() {
       const q = gridSearch.value.toLowerCase().trim();
       let list = allChannels;
       if (activeCategory !== 'All') {
-        list = list.filter(c => c.category === activeCategory || categorize(c.channel_name) === activeCategory);
+        list = list.filter(c => chMatchesCat(c, activeCategory));
       }
       if (activeCountry !== 'All') {
         list = list.filter(c => c.country === activeCountry);
@@ -3473,7 +3520,7 @@ app.get('/', (req, res) => {
           btn.classList.add('active');
           activeCategory = cat.key;
           activeCountry = 'All';
-          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => c.category === activeCategory || categorize(c.channel_name) === activeCategory);
+          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => chMatchesCat(c, activeCategory));
           buildCountrySelect(catFiltered);
           updateCatLabel();
           renderGrid(getFiltered());
@@ -4214,7 +4261,7 @@ app.get('/private-tv', (req, res) => {
           activeCategory = cat;
           activeCountry = 'All';
           document.getElementById('grid-cat-label').textContent = activeCategory === 'All' ? 'CHANNELS' : activeCategory.toUpperCase();
-          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => c.category === activeCategory);
+          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => (c.category||'').split(',').map(s=>s.trim()).includes(activeCategory));
           buildCountrySelect(catFiltered);
           renderGrid(getFiltered());
         });
@@ -4259,7 +4306,7 @@ app.get('/private-tv', (req, res) => {
     function getFiltered() {
       const q = gridSearch.value.toLowerCase().trim();
       let list = allChannels;
-      if (activeCategory !== 'All') list = list.filter(c => c.category === activeCategory);
+      if (activeCategory !== 'All') list = list.filter(c => (c.category||'').split(',').map(s=>s.trim()).includes(activeCategory) || categorize(c.channel_name||c.name||'') === activeCategory);
       if (activeCountry !== 'All') list = list.filter(c => c.country === activeCountry);
       if (q) list = list.filter(c => (c.name || c.channel_name || '').toLowerCase().includes(q));
       return list;
@@ -6061,7 +6108,12 @@ app.get('/watch', (req, res) => {
 
     /* ── Category filter ─────────────────────── */
     function getCatForChannel(ch) {
-      return (ch.category || 'international').toLowerCase();
+      const cats = (ch.category || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      return cats.length ? cats[0] : 'international';
+    }
+    function chHasCat(ch, cat) {
+      const cats = (ch.category || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      return cats.includes(cat) || cats.length === 0 && cat === 'international';
     }
     function applyCategory() {
       const q = searchInput.value.toLowerCase().trim();
@@ -6070,7 +6122,7 @@ app.get('/watch', (req, res) => {
         const favs = getFavs();
         list = list.filter(c => favs.includes(c.id));
       } else if (activeCategory !== 'all') {
-        list = list.filter(c => getCatForChannel(c) === activeCategory);
+        list = list.filter(c => chHasCat(c, activeCategory));
       }
       chCount.textContent = list.length + ' channels';
       renderChannels(list);
