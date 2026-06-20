@@ -4621,6 +4621,7 @@ app.get('/private-watch', (req, res) => {
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             _clearConnect();
             loadingMsg.classList.remove('visible');
+            errorMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
             video.muted = true; updateVolIcon();
             video.play().catch(()=>{});
@@ -6057,6 +6058,7 @@ app.get('/watch', (req, res) => {
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             _clearConnect();
             loadingMsg.classList.remove('visible');
+            errorMsg.classList.remove('visible');
             setStatus('live', 'Streaming');
             video.muted = true; updateVolIcon();
             video.play().catch(()=>{});
