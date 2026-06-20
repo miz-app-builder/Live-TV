@@ -606,6 +606,75 @@ async function ensureCategoriesTable() {
 }
 ensureCategoriesTable();
 
+async function ensurePrivateFoldersTable() {
+  try {
+    const ref = (process.env.SUPABASE_URL || '').match(/https?:\/\/([^.]+)/)?.[1];
+    const tok = process.env.SUPABASE_ACCESS_TOKEN;
+    if (!ref || !tok) return;
+    const sql = `
+      CREATE TABLE IF NOT EXISTS public.private_folders (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        emoji TEXT NOT NULL DEFAULT '📁',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      ALTER TABLE public.private_channels ADD COLUMN IF NOT EXISTS folder_id INTEGER DEFAULT NULL REFERENCES public.private_folders(id) ON DELETE SET NULL;
+    `;
+    await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: sql })
+    });
+    console.log('private_folders table ensured');
+  } catch(e) { console.error('ensurePrivateFoldersTable:', e.message); }
+}
+ensurePrivateFoldersTable();
+
+async function ensureFolderSourcesTable() {
+  try {
+    const ref = (process.env.SUPABASE_URL || '').match(/https?:\/\/([^.]+)/)?.[1];
+    const tok = process.env.SUPABASE_ACCESS_TOKEN;
+    if (!ref || !tok) return;
+    const sql = `
+      CREATE TABLE IF NOT EXISTS public.folder_sources (
+        id SERIAL PRIMARY KEY,
+        folder_id INTEGER NOT NULL REFERENCES public.private_folders(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'm3u',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `;
+    await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: sql })
+    });
+    console.log('folder_sources table ensured');
+  } catch(e) { console.error('ensureFolderSourcesTable:', e.message); }
+}
+ensureFolderSourcesTable();
+
+function parseM3U(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const channels = [];
+  let cur = {};
+  for (const line of lines) {
+    if (line.startsWith('#EXTINF')) {
+      cur = {};
+      const nm = line.match(/,(.+)$/); if (nm) cur.name = nm[1].trim();
+      const lg = line.match(/tvg-logo="([^"]+)"/); if (lg) cur.logo = lg[1];
+      const gr = line.match(/group-title="([^"]+)"/); if (gr) cur.group = gr[1];
+      const cn = line.match(/tvg-name="([^"]+)"/); if (cn && !cur.name) cur.name = cn[1];
+    } else if (!line.startsWith('#') && line.length > 4) {
+      if (cur.name) { cur.url = line; channels.push({...cur}); }
+      cur = {};
+    }
+  }
+  return channels;
+}
+
 /* ── FIFA World Cup Fixtures API ─────────────────────── */
 const fixturesCacheMap = {};
 app.get('/api/fixtures', async (req, res) => {
@@ -1387,13 +1456,14 @@ app.post('/api/admin/private-channels', async (req, res) => {
   const user = await verifyUser(req);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  const { name, stream_url, category, country, description } = req.body;
+  const { name, stream_url, category, country, description, folder_id } = req.body;
   if (!name || !stream_url) return res.status(400).json({ error: 'name and stream_url required' });
   try {
     const { data, error } = await supabaseAdmin.from('private_channels').insert([{
       name: name.trim(), stream_url: stream_url.trim(),
       category: category || 'Private', description: description || '',
-      country: country || detectCountry(name) || null
+      country: country || detectCountry(name) || null,
+      folder_id: folder_id || null
     }]).select().single();
     if (error) throw error;
     res.json({ success: true, channel: data });
@@ -1405,13 +1475,14 @@ app.put('/api/admin/private-channels/:id', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   const id = parseInt(req.params.id);
-  const { name, stream_url, category, country, description } = req.body;
+  const { name, stream_url, category, country, description, folder_id } = req.body;
   const updates = { updated_at: new Date().toISOString() };
   if (name !== undefined) updates.name = name.trim();
   if (stream_url !== undefined) updates.stream_url = stream_url.trim();
   if (category !== undefined) updates.category = category;
   if (country !== undefined) updates.country = country || null;
   if (description !== undefined) updates.description = description;
+  if (folder_id !== undefined) updates.folder_id = folder_id || null;
   try {
     const { error } = await supabaseAdmin.from('private_channels').update(updates).eq('id', id);
     if (error) throw error;
@@ -1495,6 +1566,120 @@ app.post('/api/admin/private-channels/access', async (req, res) => {
       if (error) throw error;
     }
     res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ── Private Folders API ────────────────────────────── */
+app.get('/api/admin/private-folders', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { data, error } = await supabaseAdmin.from('private_folders').select('*').order('sort_order').order('id');
+    if (error) throw error;
+    res.json({ folders: data || [] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/private-folders', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const { name, emoji } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const { data: existing } = await supabaseAdmin.from('private_folders').select('sort_order').order('sort_order', { ascending: false }).limit(1);
+    const nextOrder = existing && existing.length > 0 ? (existing[0].sort_order + 1) : 0;
+    const { data, error } = await supabaseAdmin.from('private_folders').insert([{ name: name.trim(), emoji: emoji || '📁', sort_order: nextOrder }]).select().single();
+    if (error) throw error;
+    res.json({ success: true, folder: data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/private-folders/:id', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const id = parseInt(req.params.id);
+  try {
+    await supabaseAdmin.from('private_channels').update({ folder_id: null }).eq('folder_id', id);
+    const { error } = await supabaseAdmin.from('private_folders').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/user/private-folders', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { data, error } = await supabaseAdmin.from('private_folders').select('*').order('sort_order').order('id');
+    if (error) throw error;
+    res.json({ folders: data || [] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ── Folder Sources ─────────────────────────────── */
+app.get('/api/admin/folder-sources/:folderId', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { data, error } = await supabaseAdmin.from('folder_sources').select('*').eq('folder_id', parseInt(req.params.folderId)).order('id');
+    if (error) throw error;
+    res.json({ sources: data || [] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/folder-sources', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const { folder_id, name, url, type } = req.body;
+  if (!folder_id || !name || !url) return res.status(400).json({ error: 'folder_id, name, url required' });
+  try {
+    const { data, error } = await supabaseAdmin.from('folder_sources').insert([{ folder_id: parseInt(folder_id), name: name.trim(), url: url.trim(), type: type || 'm3u' }]).select().single();
+    if (error) throw error;
+    res.json({ success: true, source: data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/folder-sources/:id', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { error } = await supabaseAdmin.from('folder_sources').delete().eq('id', parseInt(req.params.id));
+    if (error) throw error;
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/fetch-source', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (IPTV)' }, signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+    const channels = parseM3U(text);
+    res.json({ success: true, channels, total: channels.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/user/folder-sources/:folderId', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { data, error } = await supabaseAdmin.from('folder_sources').select('*').eq('folder_id', parseInt(req.params.folderId)).order('id');
+    if (error) throw error;
+    res.json({ sources: data || [] });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1725,6 +1910,75 @@ app.get('/admin', async (req, res) => {
     .url-btns{display:flex;gap:8px;justify-content:flex-end}
     #msg{position:fixed;bottom:20px;right:20px;background:#222;border:1px solid #333;border-radius:8px;padding:10px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:99999}
     #msg.show{opacity:1}
+    #theme-btn{background:none;border:1px solid #333;border-radius:20px;font-size:15px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transition:border-color .2s;flex-shrink:0;padding:0;line-height:1}
+    #theme-btn:hover{border-color:#e00}
+    /* ── Light Theme ── */
+    body.light{background:#f2f4f7;color:#111}
+    body.light header{background:#fff;border-color:#e0e0e0}
+    body.light .back-btn{background:#f5f5f5;color:#444;border-color:#ddd}
+    body.light .back-btn:hover{background:#eee}
+    body.light #theme-btn{border-color:#ccc;color:#333}
+    body.light .tabs{background:#fff;border-color:#e0e0e0}
+    body.light .tab-btn{color:#888}
+    body.light .tab-btn:hover{background:#f5f5f5;color:#333}
+    body.light .tab-btn.active{background:#f0f0f0;color:#111;box-shadow:inset 0 -2px 0 #e00}
+    body.light .stat-card{background:#fff;border-color:#e8e8e8;border-left-color:#e00;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    body.light .stat-card .lbl{color:#888}
+    body.light .search-bar{background:#fff;border-color:#ddd;color:#222}
+    body.light .search-bar::placeholder{color:#aaa}
+    body.light .search-bar:focus{border-color:#e00}
+    body.light .section-title{color:#999}
+    body.light .top-row{background:#fff;border-color:#e8e8e8}
+    body.light .top-name{color:#333}
+    body.light .top-rank{color:#aaa}
+    body.light .user-row{background:#fff;border-color:#e8e8e8}
+    body.light .u-email{color:#333}
+    body.light .u-meta{color:#999}
+    body.light .u-avatar .av-dot{border-color:#fff}
+    body.light .badge-admin{background:#f0e8ff;color:#7a4a99}
+    body.light .badge-member{background:#e8eeff;color:#3355aa}
+    body.light .badge-banned{background:#ffe8e8;color:#cc3333}
+    body.light .badge-on{background:#e8ffee;color:#228833}
+    body.light .badge-off{background:#ffe8e8;color:#cc3333}
+    body.light .ch-row{background:#fff;border-color:#e8e8e8}
+    body.light .ch-row:hover{border-color:#ccc;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+    body.light .ch-name{color:#333}
+    body.light .ch-id{color:#bbb}
+    body.light .act-btn{background:#f5f5f5;border-color:#ddd;color:#444}
+    body.light .act-btn:hover{background:#eee;color:#111}
+    body.light .act-blue{background:#f0f6ff;border-color:#c0d8ff;color:#2266cc}
+    body.light .act-blue:hover{background:#e0eeff}
+    body.light .act-red{background:#fff0f0;border-color:#ffd0d0;color:#cc2222}
+    body.light .act-red:hover{background:#ffe0e0}
+    body.light .act-green{background:#f0fff4;border-color:#c0e8cc;color:#226633}
+    body.light .act-green:hover{background:#e0ffec}
+    body.light .act-url{background:#fffbf0;border-color:#ffe0a0;color:#996600}
+    body.light .act-url:hover{background:#fff5e0}
+    body.light .cat-select{background:#fff;border-color:#ddd;color:#333}
+    body.light .settings-row{background:#fff;border-color:#e8e8e8}
+    body.light .settings-row label{color:#555}
+    body.light .settings-row .hint{color:#999}
+    body.light .range-val{color:#e00}
+    body.light .save-btn{background:#e00;color:#fff}
+    body.light .url-box{background:#fff;border-color:#ddd}
+    body.light .url-input{background:#f9f9f9;border-color:#ddd;color:#222}
+    body.light .url-input:focus{border-color:#e00}
+    body.light #msg{background:#fff;border-color:#ddd;color:#222;box-shadow:0 2px 12px rgba(0,0,0,.1)}
+    body.light .bulk-bar .bulk-label{color:#999}
+    body.light .toggle .slider{background:#ccc}
+    body.light input:checked+.slider{background:#2a2!important}
+    body.light .blocked .slider{background:#e00!important}
+    body.light #activity-box{background:#fff;border-color:#ddd}
+    body.light #activity-box-header{border-color:#eee}
+    body.light #activity-box-header h3{color:#333}
+    body.light .act-event{border-color:#eee}
+    body.light .act-title{color:#333}
+    body.light .act-time{color:#999}
+    body.light .confirm-box{background:#fff;border-color:#ddd}
+    body.light .confirm-title{color:#111}
+    body.light .confirm-msg{color:#666}
+    body.light .act-btn-cancel{background:#f5f5f5;color:#666;border-color:#ddd}
+    body.light .act-btn-cancel:hover{background:#eee;color:#333}
     @media(max-width:600px){
       .container{padding:16px 12px}
       .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;border-radius:8px}
@@ -1740,13 +1994,18 @@ app.get('/admin', async (req, res) => {
       .back-btn{font-size:11px;padding:5px 10px}
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
+<script>(function(){var t=localStorage.getItem('miz_theme');if(t==='light')document.body.classList.add('light');})();</script>
 <body>
 <header>
   <div class="logo" onclick="location.href='/'">
     ${LOGO_FULL_HTML}
   </div>
-  <a href="/" class="back-btn">← Back to App</a>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button id="theme-btn" title="Toggle theme"></button>
+    <a href="/" class="back-btn">← Back to App</a>
+  </div>
 </header>
 <div class="container">
   <div class="tabs">
@@ -1823,16 +2082,107 @@ app.get('/admin', async (req, res) => {
     </div>
   </div>
   <div id="tab-private" hidden>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-      <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);margin:0;flex:1;min-width:200px">
-        <div class="stat-card"><div class="num" id="pc-total">—</div><div class="lbl">Private Channels</div></div>
-        <div class="stat-card"><div class="num" id="pc-access-count">—</div><div class="lbl">Access Grants</div></div>
-      </div>
-      <button class="act-btn act-green" onclick="openPcAdd()" style="white-space:nowrap">➕ Add Private Channel</button>
+    <!-- Private Sub-tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid #1e1e1e;padding-bottom:10px">
+      <button id="psub-btn-channels" onclick="switchPrivateSub('channels')" style="background:#e00;color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer">📺 Channels</button>
+      <button id="psub-btn-folders"  onclick="switchPrivateSub('folders')"  style="background:#1a1a1a;color:#888;border:1px solid #2a2a2a;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer">📁 Folders</button>
     </div>
-    <input class="search-bar" id="pc-search" placeholder="🔍 Private channel খোঁজো (name/category)..." />
-    <div class="ch-list" id="pc-list"><div style="color:#444;text-align:center;padding:20px">Loading...</div></div>
-    <div id="pc-pagination"></div>
+
+    <!-- ── Channels Sub-view ── -->
+    <div id="psub-channels">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);margin:0;flex:1;min-width:200px">
+          <div class="stat-card"><div class="num" id="pc-total">—</div><div class="lbl">Private Channels</div></div>
+          <div class="stat-card"><div class="num" id="pc-access-count">—</div><div class="lbl">Access Grants</div></div>
+        </div>
+        <button class="act-btn act-green" onclick="openPcAdd()" style="white-space:nowrap">➕ Add Channel</button>
+      </div>
+      <!-- Folder Filter Tabs -->
+      <div id="pc-folder-tabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+      <input class="search-bar" id="pc-search" placeholder="🔍 Private channel খোঁজো (name/category)..." />
+      <div class="ch-list" id="pc-list"><div style="color:#444;text-align:center;padding:20px">Loading...</div></div>
+      <div id="pc-pagination"></div>
+    </div>
+
+    <!-- ── Folders Sub-view ── -->
+    <div id="psub-folders" style="display:none">
+      <!-- Folder List View -->
+      <div id="folder-list-view">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+          <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);margin:0;flex:1;min-width:200px">
+            <div class="stat-card"><div class="num" id="folder-total">—</div><div class="lbl">Total Folders</div></div>
+            <div class="stat-card"><div class="num" id="folder-ch-total">—</div><div class="lbl">Assigned Channels</div></div>
+          </div>
+        </div>
+        <!-- Add Folder Form -->
+        <div style="background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:18px;margin-bottom:20px">
+          <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px;margin-bottom:12px">➕ NEW FOLDER</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="new-folder-emoji" class="search-bar" placeholder="📁" style="width:58px;min-width:58px;text-align:center;padding:9px;margin:0;font-size:20px" maxlength="4" />
+            <input id="new-folder-name" class="search-bar" placeholder="Folder-এর নাম লেখো..." style="flex:1;margin:0;min-width:150px" />
+            <button class="act-btn act-green" onclick="addFolder()" style="white-space:nowrap;padding:9px 18px">➕ Add Folder</button>
+          </div>
+        </div>
+        <!-- Folder List -->
+        <div class="section-title" style="margin-bottom:10px">📁 ALL FOLDERS</div>
+        <div id="folder-list-tab" style="display:flex;flex-direction:column;gap:8px">
+          <div style="color:#444;text-align:center;padding:24px">Loading folders...</div>
+        </div>
+      </div>
+
+      <!-- Folder Detail View (hidden by default) -->
+      <div id="folder-detail-view" style="display:none">
+        <!-- Breadcrumb -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+          <button class="act-btn" onclick="closeFolderDetail()" style="padding:7px 14px;font-size:13px">← Back</button>
+          <span id="folder-detail-title" style="font-size:18px;font-weight:700;color:#eee"></span>
+        </div>
+        <!-- Add Source Form -->
+        <div style="background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:18px;margin-bottom:18px">
+          <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px;margin-bottom:12px">➕ ADD SERVER / WEBSITE</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <input id="src-name" class="search-bar" placeholder="Name (যেমন: Sports Server)" style="flex:1;margin:0;min-width:140px" />
+            <select id="src-type" class="cat-select" style="flex:0 0 auto;min-width:90px;padding:9px 10px">
+              <option value="m3u">M3U List</option>
+              <option value="direct">Direct URL</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="src-url" class="search-bar" placeholder="https://example.com/playlist.m3u8 অথবা যেকোনো server URL..." style="flex:1;margin:0" />
+            <button class="act-btn act-green" onclick="addFolderSource()" style="white-space:nowrap;padding:9px 16px">➕ Add</button>
+          </div>
+        </div>
+        <!-- Sources List -->
+        <div class="section-title" style="margin-bottom:10px">🌐 SOURCES</div>
+        <div id="sources-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+          <div style="color:#444;text-align:center;padding:16px">Loading...</div>
+        </div>
+        <!-- Channel Results -->
+        <div id="source-channels-wrap" style="display:none">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+            <div class="section-title" style="margin:0">📺 CHANNELS</div>
+            <span id="source-ch-count" style="font-size:12px;color:#666"></span>
+            <input id="source-ch-search" class="search-bar" placeholder="🔍 Search channels..." style="flex:1;margin:0;min-width:150px" oninput="filterSourceChannels()" />
+            <select id="source-ch-group" class="cat-select" style="min-width:120px;padding:8px" onchange="filterSourceChannels()">
+              <option value="">All Groups</option>
+            </select>
+          </div>
+          <div id="source-ch-list" style="display:flex;flex-direction:column;gap:6px;max-height:520px;overflow-y:auto;padding-right:4px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Folder Source Mini Player -->
+<div id="src-player-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99998;align-items:center;justify-content:center;flex-direction:column">
+  <div style="background:#111;border:1px solid #2a2a2a;border-radius:12px;padding:0;width:min(760px,96vw);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #222">
+      <span id="src-player-title" style="font-size:14px;font-weight:700;color:#eee;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <button onclick="closeSrcPlayer()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:0 4px;line-height:1">✕</button>
+    </div>
+    <video id="src-video" controls autoplay playsinline style="width:100%;aspect-ratio:16/9;background:#000;display:block"></video>
+    <div id="src-player-error" style="display:none;padding:14px 16px;color:#f66;font-size:13px"></div>
   </div>
 </div>
 
@@ -1964,6 +2314,10 @@ app.get('/admin', async (req, res) => {
       <option value="NG">🇳🇬 Nigeria</option>
       <option value="GH">🇬🇭 Ghana</option>
     </select>
+    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Folder (optional)</label>
+    <select class="cat-select" id="pc-folder" style="width:100%;margin-bottom:10px;padding:10px 14px">
+      <option value="">📂 No Folder</option>
+    </select>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Description (optional)</label>
     <input class="url-input" id="pc-desc" placeholder="Short description..." style="margin-bottom:12px" />
     <div class="url-btns">
@@ -2055,7 +2409,7 @@ app.get('/admin', async (req, res) => {
     if (panel) panel.hidden = false;
     _activeTab = tabName;
     localStorage.setItem('admin_active_tab', tabName);
-    if (!tabLoaded[tabName]) { tabLoaded[tabName] = true; loadTab(tabName); }
+    if (!tabLoaded[tabName]) { tabLoaded[tabName] = true; if (tabName === 'private') _folderSubLoaded = false; loadTab(tabName); }
     startAutoRefresh(tabName);
   }
 
@@ -2070,7 +2424,27 @@ app.get('/admin', async (req, res) => {
     if (t === 'users') loadUsers();
     if (t === 'channels') loadChTab();
     if (t === 'category') loadCategoryTab();
-    if (t === 'private') loadPrivateTab();
+    if (t === 'private') { loadPrivateTab(); switchPrivateSub('channels', false); }
+  }
+
+  let _activePrivateSub = 'channels';
+  let _folderSubLoaded = false;
+
+  function switchPrivateSub(sub, loadData) {
+    _activePrivateSub = sub;
+    const isCh = sub === 'channels';
+    document.getElementById('psub-channels').style.display = isCh ? 'block' : 'none';
+    document.getElementById('psub-folders').style.display  = isCh ? 'none'  : 'block';
+    const btnCh = document.getElementById('psub-btn-channels');
+    const btnFl = document.getElementById('psub-btn-folders');
+    if (isCh) {
+      btnCh.style.cssText = 'background:#e00;color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer';
+      btnFl.style.cssText = 'background:#1a1a1a;color:#888;border:1px solid #2a2a2a;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer';
+    } else {
+      btnFl.style.cssText = 'background:#e00;color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer';
+      btnCh.style.cssText = 'background:#1a1a1a;color:#888;border:1px solid #2a2a2a;border-radius:7px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer';
+      if (loadData !== false && !_folderSubLoaded) { _folderSubLoaded = true; loadFolderTab(); }
+    }
   }
 
   function showMsg(text, ok) {
@@ -2582,15 +2956,311 @@ app.get('/admin', async (req, res) => {
   let pcPage = 1;
   const PC_PER_PAGE = 100;
 
+  let allFolders = [];
+  let activeFolderFilter = null;
+
+  function renderFolderListTab() {
+    const el = document.getElementById('folder-list-tab');
+    if (!el) return;
+    if (!allFolders.length) {
+      el.innerHTML = '<div style="color:#555;font-size:13px;padding:20px;text-align:center">কোনো folder নেই। উপরে নাম লিখে Add করো।</div>';
+      document.getElementById('folder-total').textContent = '0';
+      document.getElementById('folder-ch-total').textContent = '0';
+      return;
+    }
+    document.getElementById('folder-total').textContent = allFolders.length;
+    const assignedCount = allPrivateChannels.filter(c => c.folder_id).length;
+    document.getElementById('folder-ch-total').textContent = assignedCount;
+    el.innerHTML = allFolders.map(f => {
+      const chCount = allPrivateChannels.filter(c => c.folder_id === f.id).length;
+      const fData = encodeURIComponent(JSON.stringify({id:f.id, name:f.name, emoji:f.emoji}));
+      return \`
+      <div style="display:flex;align-items:center;gap:12px;background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:12px 16px">
+        <span style="font-size:26px;line-height:1">\${f.emoji}</span>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:700;color:#eee">\${f.name}</div>
+          <div style="font-size:12px;color:#666;margin-top:2px">\${chCount} channel\${chCount!==1?'s':''} assigned</div>
+        </div>
+        <button onclick="openFolderDetail(\${f.id},'\${f.emoji} \${f.name.replace(/'/g,'&apos;')}')" class="act-btn act-blue" style="padding:7px 14px;font-size:12px">📂 Open</button>
+        <button onclick="deleteFolder(\${f.id},'\${f.name.replace(/'/g,'&apos;')}')" class="act-btn act-red" style="padding:7px 12px;font-size:12px">🗑️</button>
+      </div>\`;
+    }).join('');
+  }
+
+  /* ─── Folder Detail (Sources) ─── */
+  let _curFolderId = null;
+  let _srcChannels = [];
+  let _srcHls = null;
+
+  function openFolderDetail(folderId, folderTitle) {
+    _curFolderId = folderId;
+    document.getElementById('folder-list-view').style.display = 'none';
+    document.getElementById('folder-detail-view').style.display = 'block';
+    document.getElementById('folder-detail-title').textContent = folderTitle;
+    document.getElementById('source-channels-wrap').style.display = 'none';
+    _srcChannels = [];
+    loadFolderSources(folderId);
+  }
+
+  function closeFolderDetail() {
+    _curFolderId = null;
+    document.getElementById('folder-detail-view').style.display = 'none';
+    document.getElementById('folder-list-view').style.display = 'block';
+    closeSrcPlayer();
+  }
+
+  async function loadFolderSources(folderId) {
+    const el = document.getElementById('sources-list');
+    el.innerHTML = '<div style="color:#444;text-align:center;padding:16px">Loading...</div>';
+    const r = await fetch('/api/admin/folder-sources/' + folderId, { headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json();
+    renderSourcesList(d.sources || []);
+  }
+
+  function renderSourcesList(sources) {
+    const el = document.getElementById('sources-list');
+    if (!sources.length) {
+      el.innerHTML = '<div style="color:#555;font-size:13px;padding:16px;text-align:center">কোনো source নেই। উপরে URL দিয়ে server/website যোগ করো।</div>';
+      return;
+    }
+    el.innerHTML = sources.map(s => \`
+      <div style="display:flex;align-items:center;gap:10px;background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:11px 14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:13px;font-weight:700;color:#ddd">\${s.name}</div>
+          <div style="font-size:11px;color:#555;margin-top:2px;word-break:break-all">\${s.url.length > 70 ? s.url.slice(0,70)+'…' : s.url}</div>
+        </div>
+        <span style="font-size:10px;background:#1a1a1a;color:#666;border:1px solid #2a2a2a;border-radius:4px;padding:2px 7px">\${s.type.toUpperCase()}</span>
+        <button onclick="loadSourceChannels(\${s.id},'\${s.url.replace(/'/g,'&apos;')}','\${s.type}')" class="act-btn act-green" style="padding:6px 12px;font-size:12px">▶ Load</button>
+        <button onclick="deleteFolderSource(\${s.id})" class="act-btn act-red" style="padding:6px 10px;font-size:12px">🗑️</button>
+      </div>\`).join('');
+  }
+
+  async function addFolderSource() {
+    const name = document.getElementById('src-name').value.trim();
+    const url  = document.getElementById('src-url').value.trim();
+    const type = document.getElementById('src-type').value;
+    if (!name) { showMsg('Name দাও!', false); return; }
+    if (!url)  { showMsg('URL দাও!', false); return; }
+    const r = await fetch('/api/admin/folder-sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ folder_id: _curFolderId, name, url, type })
+    });
+    const d = await r.json();
+    if (d.success) {
+      document.getElementById('src-name').value = '';
+      document.getElementById('src-url').value  = '';
+      showMsg('Source added!', true);
+      loadFolderSources(_curFolderId);
+    } else showMsg(d.error || 'Error', false);
+  }
+
+  async function deleteFolderSource(id) {
+    if (!await showConfirm('এই source delete করবো?', true, '🌐')) return;
+    const r = await fetch('/api/admin/folder-sources/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json();
+    if (d.success) { showMsg('Deleted!', true); loadFolderSources(_curFolderId); }
+    else showMsg(d.error || 'Error', false);
+  }
+
+  async function loadSourceChannels(srcId, url, type) {
+    const wrap = document.getElementById('source-channels-wrap');
+    const listEl = document.getElementById('source-ch-list');
+    const countEl = document.getElementById('source-ch-count');
+    wrap.style.display = 'block';
+    listEl.innerHTML = '<div style="color:#444;text-align:center;padding:20px">⏳ Loading channels from server...</div>';
+    countEl.textContent = '';
+    if (type === 'direct') {
+      _srcChannels = [{ name: url.split('/').pop() || 'Stream', url, group: '' }];
+    } else {
+      const r = await fetch('/api/admin/fetch-source?url=' + encodeURIComponent(url), { headers: { Authorization: 'Bearer ' + token } });
+      const d = await r.json();
+      if (!d.success) { listEl.innerHTML = '<div style="color:#f66;padding:16px">Error: ' + (d.error||'Failed') + '</div>'; return; }
+      _srcChannels = d.channels || [];
+    }
+    const groups = [...new Set(_srcChannels.map(c => c.group||'').filter(Boolean))].sort();
+    const grpSel = document.getElementById('source-ch-group');
+    grpSel.innerHTML = '<option value="">All Groups</option>' + groups.map(g => \`<option value="\${g}">\${g}</option>\`).join('');
+    document.getElementById('source-ch-search').value = '';
+    countEl.textContent = \`(\${_srcChannels.length} channels)\`;
+    renderSrcChannelList(_srcChannels);
+    listEl.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+
+  function filterSourceChannels() {
+    const q  = (document.getElementById('source-ch-search').value||'').toLowerCase();
+    const gr = document.getElementById('source-ch-group').value;
+    let list = _srcChannels;
+    if (gr)  list = list.filter(c => (c.group||'') === gr);
+    if (q)   list = list.filter(c => c.name.toLowerCase().includes(q));
+    renderSrcChannelList(list);
+  }
+
+  function renderSrcChannelList(list) {
+    const el = document.getElementById('source-ch-list');
+    if (!list.length) { el.innerHTML = '<div style="color:#555;text-align:center;padding:16px">কোনো channel পাওয়া যায়নি।</div>'; return; }
+    el.innerHTML = list.slice(0,500).map((ch,i) => \`
+      <div style="display:flex;align-items:center;gap:10px;background:#111;border:1px solid #1e1e1e;border-radius:8px;padding:8px 12px">
+        \${ch.logo ? \`<img src="\${ch.logo}" style="width:32px;height:32px;object-fit:contain;border-radius:4px;background:#0a0a0a" onerror="this.style.display='none'" />\` : '<span style="width:32px;height:32px;background:#1a1a1a;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:16px">📺</span>'}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${ch.name}</div>
+          \${ch.group ? \`<div style="font-size:11px;color:#555;margin-top:1px">\${ch.group}</div>\` : ''}
+        </div>
+        <button onclick="playSourceChannel('\${ch.url.replace(/'/g,'&apos;')}','\${ch.name.replace(/'/g,'&apos;')}')" class="act-btn act-blue" style="padding:5px 12px;font-size:12px;white-space:nowrap">▶ Play</button>
+      </div>\`).join('');
+    if (list.length > 500) {
+      el.innerHTML += \`<div style="color:#555;text-align:center;padding:10px;font-size:12px">... আরো \${list.length-500}টি channel আছে। Search করে খোঁজো।</div>\`;
+    }
+  }
+
+  function playSourceChannel(url, name) {
+    const overlay = document.getElementById('src-player-overlay');
+    const video   = document.getElementById('src-video');
+    const errEl   = document.getElementById('src-player-error');
+    document.getElementById('src-player-title').textContent = name;
+    overlay.style.display = 'flex';
+    errEl.style.display = 'none';
+    if (_srcHls) { _srcHls.destroy(); _srcHls = null; }
+    video.src = '';
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+      _srcHls = new Hls({ enableWorker: false });
+      _srcHls.loadSource(url);
+      _srcHls.attachMedia(video);
+      _srcHls.on(Hls.Events.ERROR, (e, d) => {
+        if (d.fatal) { errEl.textContent = '⚠️ Stream load failed. URL: ' + url; errEl.style.display = 'block'; }
+      });
+      video.play().catch(()=>{});
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play().catch(()=>{});
+    } else {
+      video.src = url;
+      video.play().catch(()=>{});
+    }
+  }
+
+  function closeSrcPlayer() {
+    const overlay = document.getElementById('src-player-overlay');
+    const video   = document.getElementById('src-video');
+    if (overlay) overlay.style.display = 'none';
+    if (_srcHls) { _srcHls.destroy(); _srcHls = null; }
+    if (video) { video.pause(); video.src = ''; }
+  }
+
+  document.getElementById('src-player-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeSrcPlayer();
+  });
+
+  function renderFolderTabs() {
+    const el = document.getElementById('pc-folder-tabs');
+    if (!el) return;
+    const tabs = [{ id: null, name: 'All', emoji: '📋' }, ...allFolders, { id: -1, name: 'No Folder', emoji: '📂' }];
+    el.innerHTML = tabs.map(f => {
+      const active = activeFolderFilter === f.id;
+      return \`<button onclick="setFolderFilter(\${f.id === null ? 'null' : f.id})" style="background:\${active?'#e00':'#1a1a1a'};color:\${active?'#fff':'#999'};border:1px solid \${active?'#e00':'#2a2a2a'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">\${f.emoji} \${f.name}</button>\`;
+    }).join('');
+  }
+
+  function setFolderFilter(id) {
+    activeFolderFilter = id === 'null' ? null : id;
+    renderFolderTabs();
+    applyPcFilters();
+  }
+
+  function applyPcFilters() {
+    const q = (document.getElementById('pc-search').value || '').toLowerCase().trim();
+    let list = allPrivateChannels;
+    if (activeFolderFilter === null && document.getElementById('pc-folder-tabs').innerHTML !== '') {
+      // "All" is selected, show everything (activeFolderFilter === null means All)
+      // but we distinguish between "null = All" and "filter active": use undefined for "not set"
+    }
+    if (activeFolderFilter !== null && activeFolderFilter !== undefined) {
+      if (activeFolderFilter === -1) {
+        list = list.filter(c => !c.folder_id);
+      } else {
+        list = list.filter(c => c.folder_id === activeFolderFilter);
+      }
+    }
+    if (q) list = list.filter(c => c.name.toLowerCase().includes(q) || (c.category||'').toLowerCase().includes(q));
+    renderPrivateChannels(list);
+  }
+
+  async function addFolder() {
+    const name = document.getElementById('new-folder-name').value.trim();
+    const emoji = document.getElementById('new-folder-emoji').value.trim() || '📁';
+    if (!name) { showMsg('Folder name দাও!', false); return; }
+    const r = await fetch('/api/admin/private-folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ name, emoji })
+    });
+    const d = await r.json();
+    if (d.success) {
+      allFolders.push(d.folder);
+      document.getElementById('new-folder-name').value = '';
+      document.getElementById('new-folder-emoji').value = '';
+      renderFolderListTab();
+      renderFolderTabs();
+      populateFolderSelect();
+      showMsg('Folder added: ' + name, true);
+    } else showMsg(d.error || 'Error', false);
+  }
+
+  async function deleteFolder(id, name) {
+    if (!await showConfirm('"' + name + '" folder delete করবো? Channels গুলো folder থেকে সরে যাবে।', true, '📁')) return;
+    const r = await fetch('/api/admin/private-folders/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json();
+    if (d.success) {
+      allFolders = allFolders.filter(f => f.id !== id);
+      allPrivateChannels.forEach(c => { if (c.folder_id === id) c.folder_id = null; });
+      if (activeFolderFilter === id) { activeFolderFilter = null; }
+      renderFolderListTab();
+      renderFolderTabs();
+      populateFolderSelect();
+      applyPcFilters();
+      showMsg('Folder deleted: ' + name, true);
+    } else showMsg(d.error || 'Error', false);
+  }
+
+  function populateFolderSelect() {
+    const sel = document.getElementById('pc-folder');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">📂 No Folder</option>' +
+      allFolders.map(f => \`<option value="\${f.id}">\${f.emoji} \${f.name}</option>\`).join('');
+    if (cur) sel.value = cur;
+  }
+
   async function loadPrivateTab() {
     document.getElementById('pc-list').innerHTML = '<div style="color:#444;text-align:center;padding:20px">Loading...</div>';
     document.getElementById('pc-pagination').innerHTML = '';
-    const r = await fetch('/api/admin/private-channels', { headers: { Authorization: 'Bearer ' + token } });
-    const d = await r.json();
-    allPrivateChannels = d.channels || [];
+    const [r1, r2] = await Promise.all([
+      fetch('/api/admin/private-channels', { headers: { Authorization: 'Bearer ' + token } }),
+      fetch('/api/admin/private-folders', { headers: { Authorization: 'Bearer ' + token } })
+    ]);
+    const d1 = await r1.json();
+    const d2 = await r2.json();
+    allPrivateChannels = d1.channels || [];
+    allFolders = d2.folders || [];
     document.getElementById('pc-total').textContent = allPrivateChannels.length;
     document.getElementById('pc-access-count').textContent = '—';
+    populateFolderSelect();
+    renderFolderTabs();
     renderPrivateChannels(allPrivateChannels);
+  }
+
+  async function loadFolderTab() {
+    const el = document.getElementById('folder-list-tab');
+    if (el) el.innerHTML = '<div style="color:#444;text-align:center;padding:24px">Loading...</div>';
+    const [r1, r2] = await Promise.all([
+      fetch('/api/admin/private-channels', { headers: { Authorization: 'Bearer ' + token } }),
+      fetch('/api/admin/private-folders', { headers: { Authorization: 'Bearer ' + token } })
+    ]);
+    const d1 = await r1.json();
+    const d2 = await r2.json();
+    allPrivateChannels = d1.channels || [];
+    allFolders = d2.folders || [];
+    renderFolderListTab();
   }
 
   function renderPrivateChannels(list) {
@@ -2609,11 +3279,15 @@ app.get('/admin', async (req, res) => {
     const totalPages = Math.ceil(pcCurrentList.length / PC_PER_PAGE);
     const start = (pcPage - 1) * PC_PER_PAGE;
     const pageItems = pcCurrentList.slice(start, start + PC_PER_PAGE);
-    el.innerHTML = pageItems.map(ch => \`
+    el.innerHTML = pageItems.map(ch => {
+      const folder = ch.folder_id ? allFolders.find(f => f.id === ch.folder_id) : null;
+      const folderBadge = folder ? \`<span style="font-size:11px;color:#fa0;background:#1a1500;border:1px solid #3a2f00;border-radius:4px;padding:2px 8px;flex-shrink:0">\${folder.emoji} \${folder.name}</span>\` : '';
+      return \`
       <div class="ch-row" id="pc-row-\${ch.id}">
         <div class="ch-row-top">
           <span class="ch-name" title="\${ch.name}" style="flex:1">\${ch.name}</span>
           <span style="font-size:11px;color:#8af;background:#0a1a2a;border:1px solid #1a3a5a;border-radius:4px;padding:2px 8px;flex-shrink:0">🔒 \${ch.category}</span>
+          \${folderBadge}
           \${ch.description ? '<span style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">' + ch.description + '</span>' : ''}
         </div>
         <div class="ch-row-btns">
@@ -2622,8 +3296,8 @@ app.get('/admin', async (req, res) => {
           <button class="act-btn act-green" onclick="pcMakePublic(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">📺 Public</button>
           <button class="act-btn act-red" onclick="pcDelete(\${ch.id},'\${ch.name.replace(/'/g,'&apos;')}')">🗑 Delete</button>
         </div>
-      </div>
-    \`).join('');
+      </div>\`;
+    }).join('');
     renderPcPagination(totalPages);
   }
 
@@ -2658,10 +3332,7 @@ app.get('/admin', async (req, res) => {
     document.getElementById('pc-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  document.getElementById('pc-search').addEventListener('input', e => {
-    const q = e.target.value.toLowerCase().trim();
-    renderPrivateChannels(q ? allPrivateChannels.filter(c => c.name.toLowerCase().includes(q) || (c.category||'').toLowerCase().includes(q)) : allPrivateChannels);
-  });
+  document.getElementById('pc-search').addEventListener('input', () => applyPcFilters());
 
   /* ─── Private Channel CRUD ─── */
   let _pcEditId = null;
@@ -2672,6 +3343,7 @@ app.get('/admin', async (req, res) => {
     document.getElementById('pc-url').value = '';
     document.getElementById('pc-cat').value = 'Private';
     document.getElementById('pc-country').value = '';
+    document.getElementById('pc-folder').value = '';
     document.getElementById('pc-desc').value = '';
     document.getElementById('pc-add-modal').classList.add('open');
   }
@@ -2684,6 +3356,7 @@ app.get('/admin', async (req, res) => {
     document.getElementById('pc-url').value = ch.stream_url;
     document.getElementById('pc-cat').value = ch.category || 'Private';
     document.getElementById('pc-country').value = ch.country || '';
+    document.getElementById('pc-folder').value = ch.folder_id || '';
     document.getElementById('pc-desc').value = ch.description || '';
     document.getElementById('pc-add-modal').classList.add('open');
   }
@@ -2693,12 +3366,13 @@ app.get('/admin', async (req, res) => {
     const category = document.getElementById('pc-cat').value;
     const country = document.getElementById('pc-country').value || undefined;
     const description = document.getElementById('pc-desc').value.trim();
+    const folder_id = parseInt(document.getElementById('pc-folder').value) || null;
     if (!name || !stream_url) { showMsg('Name and URL required', false); return; }
     const method = _pcEditId ? 'PUT' : 'POST';
     const url = _pcEditId ? '/api/admin/private-channels/' + _pcEditId : '/api/admin/private-channels';
     const r = await fetch(url, {
       method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ name, stream_url, category, country, description })
+      body: JSON.stringify({ name, stream_url, category, country, description, folder_id })
     });
     const d = await r.json();
     if (d.success || d.channel) {
@@ -3998,20 +4672,7 @@ app.get('/private-tv', (req, res) => {
   <style>
     ${SHARED_HEAD_STYLES}
     #grid-view { width: 100%; max-width: 960px; }
-    .grid-search {
-      width: 100%; background: #141414; border: 1px solid #2a2a2a;
-      border-radius: 8px; padding: 10px 16px;
-      color: #ddd; font-size: 13px; margin-bottom: 16px;
-      outline: none; transition: border-color .2s;
-    }
-    .grid-search::placeholder { color: #444; }
-    .grid-search:focus { border-color: #e00; }
-    .grid-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 14px;
-    }
-    .grid-header h2 { font-size: 13px; font-weight: 600; color: #555; letter-spacing: 1px; text-transform: uppercase; }
-    .grid-count { font-size: 12px; color: #444; }
+    /* Shared channel grid */
     .grid-channels {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -4048,15 +4709,71 @@ app.get('/private-tv', (req, res) => {
     .grid-status-dot.online  { background: #33dd77; box-shadow: 0 0 5px #33dd77; }
     .grid-status-dot.offline { background: #444; }
     .no-results { color: #444; font-size: 13px; padding: 16px; text-align: center; }
-    /* Category pills */
+    /* Section headers */
+    .section-hdr {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid #1e1e1e;
+    }
+    .section-hdr h2 { font-size: 15px; font-weight: 700; color: #ccc; letter-spacing: .5px; margin: 0; }
+    .section-hdr .sec-count { font-size: 11px; color: #444; font-weight: 600; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 2px 8px; }
+    /* Folder cards */
+    .folder-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px; margin-bottom: 6px;
+    }
+    .folder-card {
+      background: #111; border: 1px solid #222;
+      border-radius: 12px; padding: 18px 14px 16px;
+      cursor: pointer; text-align: center;
+      transition: border-color .2s, background .2s, transform .15s, box-shadow .2s;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .folder-card:hover { background: #181818; border-color: #fa0; transform: translateY(-3px); box-shadow: 0 6px 22px rgba(255,170,0,.15); }
+    .folder-card.active { border-color: #fa0; background: #1a1500; box-shadow: 0 4px 18px rgba(255,170,0,.22); }
+    .folder-card-emoji { font-size: 32px; line-height: 1; }
+    .folder-card-name { font-size: 12px; font-weight: 700; color: #ccc; }
+    .folder-card-count { font-size: 11px; color: #555; }
+    /* Folder channel view */
+    .folder-ch-view {
+      background: #0e0e0e; border: 1px solid #222; border-radius: 12px;
+      padding: 14px; margin-bottom: 24px; display: none;
+    }
+    .folder-ch-view.open { display: block; }
+    .folder-ch-bar {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    }
+    .folder-ch-back {
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #ccc;
+      border-radius: 7px; padding: 5px 12px; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .folder-ch-back:hover { background: #e00; border-color: #e00; color: #fff; }
+    .folder-ch-title { font-size: 14px; font-weight: 700; color: #fa0; flex: 1; }
+    .folder-ch-count-badge { font-size: 11px; color: #555; }
+    /* Section divider */
+    .section-sep { border: none; border-top: 1px solid #1a1a1a; margin: 28px 0; }
+    /* Private TV section */
+    .grid-search {
+      width: 100%; background: #141414; border: 1px solid #2a2a2a;
+      border-radius: 8px; padding: 10px 16px;
+      color: #ddd; font-size: 13px; margin-bottom: 16px;
+      outline: none; transition: border-color .2s;
+    }
+    .grid-search::placeholder { color: #444; }
+    .grid-search:focus { border-color: #e00; }
+    .grid-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .grid-header h2 { font-size: 13px; font-weight: 600; color: #555; letter-spacing: 1px; text-transform: uppercase; }
+    .grid-count { font-size: 12px; color: #444; }
     .cat-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
     .cat-pill { background:#141414; border:1px solid #1e1e1e; border-radius:20px; padding:7px 15px; color:#666; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap; outline:none; }
     .cat-pill:hover { border-color:#444; color:#ccc; background:#1c1c1c; }
     .cat-pill.active { background:#e00; border-color:#e00; color:#fff; box-shadow:0 2px 10px rgba(220,0,0,.35); }
-    /* Country filter */
-    .filter-bar {
-      display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
-    }
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
     .filter-select {
       background: #141414; border: 1px solid #2a2a2a;
       border-radius: 8px; padding: 8px 32px 8px 12px;
@@ -4095,17 +4812,46 @@ app.get('/private-tv', (req, res) => {
     <div id="auth-area"></div>
   </header>
   <div id="grid-view">
-    <input class="grid-search" id="grid-search" type="text" placeholder="🔍  Search channels..." autocomplete="off" />
-    <div id="cat-pills" class="cat-pills"></div>
-    <div class="filter-bar">
-      <select class="filter-select" id="country-select"></select>
+
+    <!-- ── Section 1: Folders ── -->
+    <div id="folders-section" style="display:none">
+      <div class="section-hdr">
+        <h2>📁 Folders</h2>
+        <span class="sec-count" id="folder-sec-count"></span>
+      </div>
+      <div class="folder-cards" id="folder-cards"></div>
+      <!-- Folder channel view (shown on folder click) -->
+      <div class="folder-ch-view" id="folder-ch-view">
+        <div class="folder-ch-bar">
+          <button class="folder-ch-back" onclick="closeFolderView()">← Back</button>
+          <span class="folder-ch-title" id="folder-ch-title"></span>
+          <span class="folder-ch-count-badge" id="folder-ch-count"></span>
+        </div>
+        <div class="grid-channels" id="folder-channels"></div>
+      </div>
     </div>
-    <div class="grid-header">
-      <h2 id="grid-cat-label">Channels</h2>
-      <span class="grid-count" id="grid-count"></span>
+
+    <hr class="section-sep" id="section-sep" style="display:none" />
+
+    <!-- ── Section 2: Private TV ── -->
+    <div id="private-tv-section">
+      <div class="section-hdr">
+        <h2>📺 Private TV</h2>
+        <span class="sec-count" id="pc-total-count"></span>
+      </div>
+      <input class="grid-search" id="grid-search" type="text" placeholder="🔍  Search channels..." autocomplete="off" />
+      <div id="cat-pills" class="cat-pills"></div>
+      <div class="filter-bar">
+        <select class="filter-select" id="country-select"></select>
+      </div>
+      <div class="grid-header">
+        <h2 id="grid-cat-label">Channels</h2>
+        <span class="grid-count" id="grid-count"></span>
+      </div>
+      <div class="grid-channels" id="grid-channels"></div>
+      <div id="grid-pagination"></div>
     </div>
-    <div class="grid-channels" id="grid-channels"></div>
-    <div id="grid-pagination"></div>
+
   </div>
   <script>
     /* ── Grid ── */
@@ -4115,6 +4861,7 @@ app.get('/private-tv', (req, res) => {
     let allChannels = [];
     let activeCategory = 'All';
     let activeCountry = 'All';
+    let allFoldersList = [];
     let tvPage = 1;
     const TV_PER_PAGE = 100;
     let tvFilteredList = [];
@@ -4173,30 +4920,7 @@ app.get('/private-tv', (req, res) => {
       const pageItems = tvFilteredList.slice(start, start + TV_PER_PAGE);
       gridCount.textContent = tvFilteredList.length + ' channels · Page ' + tvPage + '/' + totalPages;
       const frag = document.createDocumentFragment();
-      pageItems.forEach(ch => {
-        const card = document.createElement('div');
-        card.className = 'grid-card';
-        const dot = document.createElement('span');
-        dot.className = 'grid-status-dot ' + (ch.status === 'Online' ? 'online' : 'offline');
-        dot.title = ch.status || 'Unknown';
-        card.appendChild(dot);
-        const fallback = document.createElement('div');
-        fallback.className = 'grid-logo';
-        fallback.style.background = logoColor(ch.name);
-        fallback.textContent = initials(ch.name);
-        const img = document.createElement('img');
-        img.className = 'grid-logo-img';
-        img.alt = ch.name;
-        card.appendChild(img);
-        card.appendChild(fallback);
-        attachLogo(img, fallback, ch);
-        const nameEl = document.createElement('div');
-        nameEl.className = 'grid-name';
-        nameEl.textContent = ch.name;
-        card.appendChild(nameEl);
-        card.addEventListener('click', () => { window.location.href = '/private-watch?ch=' + ch.id; });
-        frag.appendChild(card);
-      });
+      pageItems.forEach(ch => makeChannelCard(ch, frag));
       gridChannels.appendChild(frag);
       renderTvPagination(totalPages);
     }
@@ -4298,10 +5022,88 @@ app.get('/private-tv', (req, res) => {
     function getFiltered() {
       const q = gridSearch.value.toLowerCase().trim();
       let list = allChannels;
-      if (activeCategory !== 'All') list = list.filter(c => (c.category||'').split(',').map(s=>s.trim()).includes(activeCategory) || categorize(c.channel_name||c.name||'') === activeCategory);
+      if (activeCategory !== 'All') list = list.filter(c => (c.category||'').split(',').map(s=>s.trim()).includes(activeCategory));
       if (activeCountry !== 'All') list = list.filter(c => c.country === activeCountry);
       if (q) list = list.filter(c => (c.name || c.channel_name || '').toLowerCase().includes(q));
       return list;
+    }
+
+    function makeChannelCard(ch, container) {
+      const card = document.createElement('div');
+      card.className = 'grid-card';
+      const dot = document.createElement('span');
+      dot.className = 'grid-status-dot ' + (ch.status === 'Online' ? 'online' : 'offline');
+      dot.title = ch.status || 'Unknown';
+      card.appendChild(dot);
+      const fallback = document.createElement('div');
+      fallback.className = 'grid-logo';
+      fallback.style.background = logoColor(ch.name);
+      fallback.textContent = initials(ch.name);
+      const img = document.createElement('img');
+      img.className = 'grid-logo-img';
+      img.alt = ch.name;
+      card.appendChild(img);
+      card.appendChild(fallback);
+      attachLogo(img, fallback, ch);
+      const nameEl = document.createElement('div');
+      nameEl.className = 'grid-name';
+      nameEl.textContent = ch.name;
+      card.appendChild(nameEl);
+      card.addEventListener('click', () => { window.location.href = '/private-watch?ch=' + ch.id; });
+      container.appendChild(card);
+    }
+
+    function buildFolderCards() {
+      const sec = document.getElementById('folders-section');
+      const sep = document.getElementById('section-sep');
+      const cardsEl = document.getElementById('folder-cards');
+      const countEl = document.getElementById('folder-sec-count');
+      if (!allFoldersList.length) {
+        sec.style.display = 'none';
+        sep.style.display = 'none';
+        return;
+      }
+      sec.style.display = 'block';
+      sep.style.display = 'block';
+      countEl.textContent = allFoldersList.length + ' folder' + (allFoldersList.length > 1 ? 's' : '');
+      cardsEl.innerHTML = '';
+      allFoldersList.forEach(f => {
+        const chCount = allChannels.filter(c => c.folder_id === f.id).length;
+        const card = document.createElement('div');
+        card.className = 'folder-card';
+        card.id = 'fcard-' + f.id;
+        card.innerHTML = '<div class="folder-card-emoji">' + f.emoji + '</div>' +
+          '<div class="folder-card-name">' + f.name + '</div>' +
+          '<div class="folder-card-count">' + chCount + ' channels</div>';
+        card.addEventListener('click', () => openFolderView(f));
+        cardsEl.appendChild(card);
+      });
+    }
+
+    function openFolderView(folder) {
+      document.querySelectorAll('.folder-card').forEach(c => c.classList.remove('active'));
+      const fc = document.getElementById('fcard-' + folder.id);
+      if (fc) fc.classList.add('active');
+      const view = document.getElementById('folder-ch-view');
+      const titleEl = document.getElementById('folder-ch-title');
+      const countEl = document.getElementById('folder-ch-count');
+      const chanGrid = document.getElementById('folder-channels');
+      const list = allChannels.filter(c => c.folder_id === folder.id);
+      titleEl.textContent = folder.emoji + ' ' + folder.name;
+      countEl.textContent = list.length + ' channels';
+      chanGrid.innerHTML = '';
+      if (!list.length) {
+        chanGrid.innerHTML = '<div class="no-results" style="grid-column:1/-1">এই folder-এ কোনো channel নেই।</div>';
+      } else {
+        list.forEach(ch => makeChannelCard(ch, chanGrid));
+      }
+      view.classList.add('open');
+      view.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function closeFolderView() {
+      document.getElementById('folder-ch-view').classList.remove('open');
+      document.querySelectorAll('.folder-card').forEach(c => c.classList.remove('active'));
     }
 
     gridSearch.addEventListener('input', () => renderGrid(getFiltered()));
@@ -4309,14 +5111,22 @@ app.get('/private-tv', (req, res) => {
     async function loadChannels() {
       try {
         const tok = localStorage.getItem('miz_token');
-        const r = await fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } });
-        if (r.status === 401) { window.location.replace('/'); return; }
-        const data = await r.json();
+        const [r1, r2] = await Promise.all([
+          fetch('/api/user/private-channels', { headers: { Authorization: 'Bearer ' + tok } }),
+          fetch('/api/user/private-folders', { headers: { Authorization: 'Bearer ' + tok } })
+        ]);
+        if (r1.status === 401) { window.location.replace('/'); return; }
+        const data = await r1.json();
+        const fdata = r2.ok ? await r2.json() : { folders: [] };
         allChannels = data.channels || [];
+        allFoldersList = fdata.folders || [];
         if (!allChannels.length) {
           gridChannels.innerHTML = '<div class="no-results" style="grid-column:1/-1">Access denied or no private channels assigned.</div>';
           return;
         }
+        const totalEl = document.getElementById('pc-total-count');
+        if (totalEl) totalEl.textContent = allChannels.length + ' channels';
+        buildFolderCards();
         buildCategoryTabs(allChannels);
         buildCountrySelect(allChannels);
         document.getElementById('grid-cat-label').textContent = 'CHANNELS';
