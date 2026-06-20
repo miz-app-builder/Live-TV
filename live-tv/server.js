@@ -1043,8 +1043,15 @@ function getCategories() {
   try { const r = appConfig['categories']; if (r) return JSON.parse(r); } catch(_) {}
   return DEFAULT_CATEGORIES;
 }
-app.get('/api/categories', (req, res) => {
-  res.json({ categories: getCategories() });
+app.get('/api/categories', async (req, res) => {
+  try {
+    const { data } = await supabaseAdmin.from('app_config').select('value').eq('key', 'categories').single();
+    if (data && data.value) {
+      const cats = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+      if (Array.isArray(cats) && cats.length > 0) return res.json({ categories: cats });
+    }
+  } catch(_) {}
+  res.json({ categories: DEFAULT_CATEGORIES });
 });
 app.get('/api/admin/categories', async (req, res) => {
   const user = await verifyUser(req);
@@ -3279,17 +3286,28 @@ app.get('/', (req, res) => {
     let activeCategory = 'All';
     let activeCountry = 'All';
 
-    const CATEGORIES = [
-      { key: 'All',           label: '🔍 All' },
-      { key: 'Bangla',        label: '🇧🇩 Bangla' },
-      { key: 'News',          label: '📰 News' },
-      { key: 'Movies',        label: '🎬 Movies' },
-      { key: 'Music',         label: '🎵 Music' },
-      { key: 'Kids',          label: '👶 Kids' },
-      { key: 'Sports',        label: '⚽ Sports' },
-      { key: 'FIFA',          label: '🏆 FIFA' },
+    let CATEGORIES = [
+      { key: 'All', label: '🔍 All' },
+      { key: 'Bangla', label: '🇧🇩 Bangla' },
+      { key: 'News', label: '📰 News' },
+      { key: 'Movies', label: '🎬 Movies' },
+      { key: 'Music', label: '🎵 Music' },
+      { key: 'Kids', label: '👶 Kids' },
+      { key: 'Sports', label: '⚽ Sports' },
+      { key: 'FIFA', label: '🏆 FIFA' },
       { key: 'International', label: '🌍 International' },
     ];
+    async function loadCategoriesFromServer() {
+      try {
+        const r = await fetch('/api/categories');
+        const d = await r.json();
+        if (d.categories && d.categories.length) {
+          CATEGORIES = [{ key: 'All', label: '🔍 All' },
+            ...d.categories.map(c => ({ key: c.name, label: c.emoji + ' ' + c.name }))
+          ];
+        }
+      } catch(_) {}
+    }
 
     const CAT_RULES = [
       { key: 'Bangla', words: ['bangla','boishakhi','jamuna','somoy','ekattor','deepto','maasranga',' ntv','dbc','ekushey','deshi','sangeet','atn','channel i','channel 9','channel 24','sa tv','btv','sangsad','independent tv','star news','rongeen','dd bangla','republic bangla','kolkata tv','tv9 bangla','abp ananda','zee 24 ghanta','news18 bangla','r bangla','enter10','colors bangla','sony aath','jalsha','g-series','g-serise','aakash aath','ananda tv','protidin','24 ghanta','24 ghonto','24 kalak','24 taas','jago','dhoom','baalle','baallee','srk tv','bengali beats','gopal bhar'] },
@@ -3513,6 +3531,7 @@ app.get('/', (req, res) => {
         const data = await r.json();
         allChannels = data.channels;
         renderLiveSection(allChannels);
+        await loadCategoriesFromServer();
         buildCategoryTabs();
         buildCountrySelect(allChannels);
         updateCatLabel();
