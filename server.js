@@ -580,12 +580,18 @@ async function ensureActivityTables() {
 ensureActivityTables();
 
 /* ── FIFA World Cup Fixtures API ─────────────────────── */
-let fixturesCache = { data: null, ts: 0 };
+const fixturesCacheMap = {};
 app.get('/api/fixtures', async (req, res) => {
   const now = Date.now();
-  if (fixturesCache.data && (now - fixturesCache.ts) < 60000) return res.json(fixturesCache.data);
+  const dateParam = req.query.date || '';
+  const cacheKey = dateParam || 'today';
+  const cached = fixturesCacheMap[cacheKey];
+  if (cached && (now - cached.ts) < 60000) return res.json(cached.data);
   try {
-    const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard');
+    const url = dateParam
+      ? `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateParam}`
+      : 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard';
+    const resp = await fetch(url);
     const raw = await resp.json();
     const matches = (raw.events || []).map(e => {
       const comp = e.competitions[0];
@@ -593,21 +599,37 @@ app.get('/api/fixtures', async (req, res) => {
       const home = teams.find(t => t.homeAway === 'home') || teams[0];
       const away = teams.find(t => t.homeAway === 'away') || teams[1];
       const status = comp.status.type;
+      const homeId = home.team.id;
+      const goals = (comp.details || [])
+        .filter(d => d.scoringPlay)
+        .map(d => {
+          const athlete = (d.athletesInvolved || [])[0];
+          return {
+            teamId: d.team && d.team.id,
+            name: athlete ? athlete.shortName : '?',
+            minute: d.clock ? d.clock.displayValue : '',
+            og: !!d.ownGoal,
+            pen: !!d.penaltyKick,
+          };
+        });
+      const homeGoals = goals.filter(g => g.teamId === homeId);
+      const awayGoals = goals.filter(g => g.teamId !== homeId);
       return {
         id: e.id, date: e.date,
         stage: (e.season && e.season.slug) ? e.season.slug : 'group-stage',
         status: status.state,
         detail: status.detail,
         clock: comp.status.displayClock || '',
-        home: { name: home.team.displayName, short: home.team.abbreviation, logo: home.team.logo || '', score: home.score || '' },
-        away: { name: away.team.displayName, short: away.team.abbreviation, logo: away.team.logo || '', score: away.score || '' },
+        home: { name: home.team.displayName, short: home.team.abbreviation, logo: home.team.logo || '', score: home.score || '', goals: homeGoals },
+        away: { name: away.team.displayName, short: away.team.abbreviation, logo: away.team.logo || '', score: away.score || '', goals: awayGoals },
       };
     });
-    fixturesCache = { data: { matches }, ts: now };
+    fixturesCacheMap[cacheKey] = { data: { matches }, ts: now };
     res.json({ matches });
   } catch(err) {
     console.error('[fixtures]', err.message);
-    if (fixturesCache.data) return res.json(fixturesCache.data);
+    const fb = fixturesCacheMap[cacheKey];
+    if (fb) return res.json(fb.data);
     res.json({ matches: [] });
   }
 });
@@ -2726,6 +2748,22 @@ app.get('/', (req, res) => {
       font-size: 12px; font-weight: 800; color: #00cc55;
       letter-spacing: 2px; text-transform: uppercase; flex-shrink: 0;
     }
+    .fixture-nav {
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .fixture-nav-btn {
+      background: #0d2016; border: 1px solid #1a4028; border-radius: 6px;
+      color: #00cc55; font-size: 13px; font-weight: 900;
+      width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background .2s, border-color .2s;
+      line-height: 1; padding: 0; flex-shrink: 0;
+    }
+    .fixture-nav-btn:hover { background: #143020; border-color: #00cc55; }
+    .fixture-nav-btn:disabled { opacity: .3; cursor: default; pointer-events: none; }
+    .fixture-nav-label {
+      font-size: 10px; font-weight: 700; color: #aaa;
+      min-width: 70px; text-align: center; flex-shrink: 0;
+    }
     .fixture-chips {
       display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto;
       flex: 1; min-width: 0;
@@ -2821,6 +2859,20 @@ app.get('/', (req, res) => {
     }
     .fixture-status.fc-post { color: #3a5545; background: transparent; }
     .fixture-status.fc-pre { color: #4a6a7a; background: transparent; }
+    .fixture-scorers {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      width: 100%; margin: 4px 0 2px; gap: 4px;
+    }
+    .fixture-scorer-col {
+      display: flex; flex-direction: column; gap: 2px; max-width: 48%;
+    }
+    .fixture-scorer-col.home { align-items: flex-start; }
+    .fixture-scorer-col.away { align-items: flex-end; text-align: right; }
+    .fixture-scorer-item {
+      font-size: 9px; color: #6a8a76; line-height: 1.3; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
+    .fixture-scorer-item .fc-goal-icon { color: #00aa44; margin-right: 2px; }
     /* ── LIVE NOW section ── */
     #live-section {
       width: 100%; max-width: 960px;
@@ -2944,6 +2996,11 @@ app.get('/', (req, res) => {
   <div id="fixture-section" style="display:none">
     <div class="fixture-header" id="fixture-toggle-btn">
       <span class="fixture-title">⚽ FIFA World Cup 2026</span>
+      <div class="fixture-nav" id="fixture-nav" onclick="event.stopPropagation()">
+        <button class="fixture-nav-btn" id="fixture-prev" title="Previous day">&#8249;</button>
+        <span class="fixture-nav-label" id="fixture-nav-label">Today</span>
+        <button class="fixture-nav-btn" id="fixture-next" title="Next day">&#8250;</button>
+      </div>
       <div class="fixture-chips" id="fixture-chips"></div>
       <span class="fixture-toggle" id="fixture-arrow">▼</span>
     </div>
@@ -3254,21 +3311,68 @@ app.get('/', (req, res) => {
       if (section && !section.contains(e.target)) setFcOpen(false);
     }, { passive: true });
 
+    let _fixtureDateOffset = 0;
+    const MAX_FIXTURE_DAYS = 7;
+
+    function getFixtureDateStr(offset) {
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + m + day;
+    }
+
+    function getFixtureDateLabel(offset) {
+      if (offset === 0) return 'Today';
+      if (offset === -1) return 'Yesterday';
+      if (offset === 1) return 'Tomorrow';
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      return d.toLocaleDateString('en-BD', { month: 'short', day: 'numeric', timeZone: 'Asia/Dhaka' });
+    }
+
+    function updateFixtureNavUI() {
+      const label = document.getElementById('fixture-nav-label');
+      const prev = document.getElementById('fixture-prev');
+      const next = document.getElementById('fixture-next');
+      if (label) label.textContent = getFixtureDateLabel(_fixtureDateOffset);
+      if (prev) prev.disabled = _fixtureDateOffset <= -MAX_FIXTURE_DAYS;
+      if (next) next.disabled = _fixtureDateOffset >= MAX_FIXTURE_DAYS;
+    }
+
     async function loadFixtures() {
       try {
-        const r = await fetch('/api/fixtures');
+        const dateStr = _fixtureDateOffset !== 0 ? getFixtureDateStr(_fixtureDateOffset) : '';
+        const url = dateStr ? '/api/fixtures?date=' + dateStr : '/api/fixtures';
+        const r = await fetch(url);
         const data = await r.json();
         renderFixtures(data.matches || []);
       } catch(e) { console.warn('[fixtures]', e); }
+      updateFixtureNavUI();
     }
+
+    document.getElementById('fixture-prev').addEventListener('click', function() {
+      _fixtureDateOffset--;
+      loadFixtures();
+    });
+    document.getElementById('fixture-next').addEventListener('click', function() {
+      _fixtureDateOffset++;
+      loadFixtures();
+    });
 
     function renderFixtures(matches) {
       const section = document.getElementById('fixture-section');
       const grid = document.getElementById('fixture-grid');
       const chips = document.getElementById('fixture-chips');
-      if (!matches.length) { section.style.display = 'none'; return; }
+      if (!matches.length && _fixtureDateOffset === 0) { section.style.display = 'none'; return; }
       section.style.display = '';
       setFcOpen(_fcOpen);
+      if (!matches.length) {
+        chips.innerHTML = '';
+        grid.innerHTML = '<div style="color:#556;font-size:12px;text-align:center;padding:20px 0;">No matches found for this date</div>';
+        return;
+      }
 
       chips.innerHTML = matches.map(m => {
         const isLive = m.status === 'in';
@@ -3308,6 +3412,14 @@ app.get('/', (req, res) => {
         const scoreHtml = (isLive || isPost)
           ? '<span class="fixture-score">' + m.home.score + '</span><span class="fixture-sep">-</span><span class="fixture-score">' + m.away.score + '</span>'
           : '<span class="fixture-vs">vs</span>';
+        const goalLine = g => '<div class="fixture-scorer-item"><span class="fc-goal-icon">⚽</span>' + g.name + ' ' + g.minute + (g.og ? ' (OG)' : '') + (g.pen ? ' (P)' : '') + '</div>';
+        const hasGoals = (isLive || isPost) && ((m.home.goals && m.home.goals.length) || (m.away.goals && m.away.goals.length));
+        const scorersHtml = hasGoals
+          ? '<div class="fixture-scorers">' +
+              '<div class="fixture-scorer-col home">' + (m.home.goals || []).map(goalLine).join('') + '</div>' +
+              '<div class="fixture-scorer-col away">' + (m.away.goals || []).map(goalLine).join('') + '</div>' +
+            '</div>'
+          : '';
         return '<div class="fixture-card' + (isLive ? ' fc-live' : '') + '">' +
           '<span class="fixture-stage">' + stageLabel + '</span>' +
           '<div class="fixture-teams">' +
@@ -3323,12 +3435,13 @@ app.get('/', (req, res) => {
               '<span class="fixture-team-name">' + m.away.short + '</span>' +
             '</div>' +
           '</div>' +
+          scorersHtml +
           '<span class="fixture-status ' + statusCls + '">' + statusText + '</span>' +
         '</div>';
       }).join('');
     }
     loadFixtures();
-    setInterval(loadFixtures, 60000);
+    setInterval(function(){ if (_fixtureDateOffset === 0) loadFixtures(); }, 60000);
 
     /* ── Auth & Guest Timer ────────────────────── */
     const GUEST_LIMIT = ${(parseInt(appConfig.guest_limit_minutes) || 5) * 60 * 1000};
