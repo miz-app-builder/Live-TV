@@ -1681,6 +1681,7 @@ app.get('/admin', async (req, res) => {
         <option value="Music">🎵 Music</option>
         <option value="Kids">👶 Kids</option>
         <option value="Sports">⚽ Sports</option>
+        <option value="FIFA">🏆 FIFA</option>
         <option value="International">🌍 International</option>
       </select>
       <button class="act-btn act-red" onclick="bulkAction('block')">🚫 Block All</button>
@@ -1744,6 +1745,7 @@ app.get('/admin', async (req, res) => {
       <option value="Music">🎵 Music</option>
       <option value="Kids">👶 Kids</option>
       <option value="Sports">⚽ Sports</option>
+      <option value="FIFA">🏆 FIFA</option>
       <option value="International">🌍 International</option>
     </select>
     <div class="url-btns">
@@ -1770,6 +1772,7 @@ app.get('/admin', async (req, res) => {
       <option value="Music">🎵 Music</option>
       <option value="Kids">👶 Kids</option>
       <option value="Sports">⚽ Sports</option>
+      <option value="FIFA">🏆 FIFA</option>
       <option value="International">🌍 International</option>
     </select>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Country</label>
@@ -1829,6 +1832,7 @@ app.get('/admin', async (req, res) => {
       <option value="Movies">🎬 Movies</option>
       <option value="Music">🎵 Music</option>
       <option value="Sports">⚽ Sports</option>
+      <option value="FIFA">🏆 FIFA</option>
       <option value="International">🌍 International</option>
     </select>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Country</label>
@@ -2643,6 +2647,8 @@ app.get('/googledbd050bd9f076437.html', (req, res) => {
 });
 
 app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2983,6 +2989,7 @@ app.get('/', (req, res) => {
       { key: 'Music',         label: '🎵 Music' },
       { key: 'Kids',          label: '👶 Kids' },
       { key: 'Sports',        label: '⚽ Sports' },
+      { key: 'FIFA',          label: '🏆 FIFA' },
       { key: 'International', label: '🌍 International' },
     ];
 
@@ -3118,7 +3125,7 @@ app.get('/', (req, res) => {
       const q = gridSearch.value.toLowerCase().trim();
       let list = allChannels;
       if (activeCategory !== 'All') {
-        list = list.filter(c => categorize(c.channel_name) === activeCategory);
+        list = list.filter(c => c.category === activeCategory || categorize(c.channel_name) === activeCategory);
       }
       if (activeCountry !== 'All') {
         list = list.filter(c => c.country === activeCountry);
@@ -3150,7 +3157,7 @@ app.get('/', (req, res) => {
           btn.classList.add('active');
           activeCategory = cat.key;
           activeCountry = 'All';
-          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => categorize(c.channel_name) === activeCategory);
+          const catFiltered = activeCategory === 'All' ? allChannels : allChannels.filter(c => c.category === activeCategory || categorize(c.channel_name) === activeCategory);
           buildCountrySelect(catFiltered);
           updateCatLabel();
           renderGrid(getFiltered());
@@ -4951,6 +4958,8 @@ app.get('/private-watch', (req, res) => {
 });
 
 app.get('/watch', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5474,6 +5483,7 @@ app.get('/watch', (req, res) => {
       <button class="cat-btn" data-cat="music" id="cnt-music">🎵 Music</button>
       <button class="cat-btn" data-cat="kids" id="cnt-kids">👶 Kids</button>
       <button class="cat-btn" data-cat="sports" id="cnt-sports">⚽ Sports</button>
+      <button class="cat-btn" data-cat="fifa" id="cnt-fifa">🏆 FIFA</button>
       <button class="cat-btn" data-cat="international" id="cnt-intl">🌍 Intl</button>
     </div>
     <div id="resume-bar">
@@ -5594,6 +5604,7 @@ app.get('/watch', (req, res) => {
       if (cat === 'music' || /music|গান|সঙ্গীত/.test(name)) return 'music';
       if (cat === 'kids' || /kids|children|cartoon|baby|শিশু/.test(name)) return 'kids';
       if (cat === 'sports' || /sport|cricket|football|খেলা/.test(name)) return 'sports';
+      if (cat === 'fifa') return 'fifa';
       if (cat === 'international') return 'international';
       return 'other';
     }
@@ -5618,9 +5629,9 @@ app.get('/watch', (req, res) => {
       });
     });
     function updateCategoryCounts() {
-      const cats = { bangla:0, news:0, movies:0, music:0, kids:0, sports:0, international:0 };
+      const cats = { bangla:0, news:0, movies:0, music:0, kids:0, sports:0, fifa:0, international:0 };
       allChannels.forEach(c => { const k = getCatForChannel(c); if (cats[k] !== undefined) cats[k]++; });
-      const idMap = { bangla:'cnt-bangla', news:'cnt-news', movies:'cnt-movies', music:'cnt-music', kids:'cnt-kids', sports:'cnt-sports', international:'cnt-intl' };
+      const idMap = { bangla:'cnt-bangla', news:'cnt-news', movies:'cnt-movies', music:'cnt-music', kids:'cnt-kids', sports:'cnt-sports', fifa:'cnt-fifa', international:'cnt-intl' };
       Object.entries(idMap).forEach(([cat, elId]) => {
         const el = document.getElementById(elId);
         if (el && cats[cat]) { const base = el.textContent.split(' (')[0]; el.textContent = base + ' (' + cats[cat] + ')'; }
