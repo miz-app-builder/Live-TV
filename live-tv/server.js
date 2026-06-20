@@ -247,7 +247,7 @@ async function getUserRole(userId) {
 }
 
 const LOGO_SVG = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="32" height="32" rx="8" fill="#e00"/><rect x="4" y="8" width="24" height="16" rx="3" fill="#fff" fill-opacity="0.15"/><rect x="4" y="8" width="24" height="16" rx="3" stroke="#fff" stroke-opacity="0.4" stroke-width="1"/><polygon points="13,12 13,20 21,16" fill="#fff"/><rect x="11" y="25" width="4" height="3" rx="1" fill="#e00" fill-opacity="0.7"/><rect x="17" y="25" width="4" height="3" rx="1" fill="#e00" fill-opacity="0.7"/><rect x="9" y="27" width="14" height="1.5" rx="0.75" fill="#e00" fill-opacity="0.5"/></svg>`;
-const LOGO_FULL_HTML = `${LOGO_SVG}<span style="font-size:18px;font-weight:700;letter-spacing:1px;color:#fff">MIZ <span style="color:#e00">Live</span> TV</span>`;
+const LOGO_FULL_HTML = `${LOGO_SVG}<span style="font-size:18px;font-weight:700;letter-spacing:1px;color:inherit">MIZ <span style="color:#e00">Live</span> TV</span>`;
 
 const SB_URL = process.env.SUPABASE_URL || '';
 const SB_KEY = process.env.SUPABASE_ANON_KEY || '';
@@ -538,9 +538,9 @@ async function ensurePrivatePinColumn() {
     await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS private_pin TEXT DEFAULT NULL;` })
+      body: JSON.stringify({ query: `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS private_pin TEXT DEFAULT NULL; ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT DEFAULT 'light';` })
     });
-    console.log('private_pin column ensured');
+    console.log('private_pin + theme columns ensured');
   } catch(e) { console.error('ensurePrivatePinColumn:', e.message); }
 }
 ensurePrivatePinColumn();
@@ -686,7 +686,18 @@ app.get('/api/auth/me', async (req, res) => {
   const user = await verifyUser(req);
   if (!user) return res.json({ user: null });
   const role = await getUserRole(user.id);
-  res.json({ user: { id: user.id, email: user.email, role } });
+  const { data: profile } = await supabaseAdmin.from('profiles').select('theme').eq('id', user.id).single();
+  const theme = (profile && profile.theme) || 'light';
+  res.json({ user: { id: user.id, email: user.email, role, theme } });
+});
+
+app.post('/api/user/theme', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { theme } = req.body;
+  if (!['light', 'dark'].includes(theme)) return res.status(400).json({ error: 'Invalid theme' });
+  await supabaseAdmin.from('profiles').upsert({ id: user.id, theme });
+  res.json({ ok: true });
 });
 
 app.get('/api/admin/channels', async (req, res) => {
@@ -2986,12 +2997,67 @@ app.get('/', (req, res) => {
     .g-login:hover { background: #c00; }
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
+    /* ── Theme toggle ── */
+    #header-right { display:flex; align-items:center; gap:8px; }
+    #theme-btn { background:none; border:1px solid #444; border-radius:20px; font-size:14px; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; transition:border-color .2s; flex-shrink:0; padding:0; line-height:1; }
+    #theme-btn:hover { border-color:#e00; }
+    /* ── Light Theme ── */
+    body.light { background:#f2f4f6; color:#111; }
+    body.light #theme-btn { border-color:#ccc; }
+    body.light .open-btn { background:#fff; color:#555; border-color:#ddd; }
+    body.light .auth-btn { background:#fff; color:#333; border-color:#ddd; }
+    body.light .user-drop { background:#fff; border-color:#ddd; box-shadow:0 4px 20px rgba(0,0,0,.12); }
+    body.light .user-email-line { color:#888; border-color:#eee; }
+    body.light .user-item { color:#333; }
+    body.light .user-item:hover { background:#f5f5f5; color:#111; }
+    body.light #fixture-section { background:linear-gradient(135deg,#e8f5ef 0%,#f0f8f4 100%); border-color:#b8ddc8; }
+    body.light .fixture-nav-btn { background:#d8efe0; border-color:#a8ceb8; color:#007733; }
+    body.light .fixture-nav-btn:hover { background:#c8e4d4; border-color:#007733; }
+    body.light .fixture-nav-label { color:#555; }
+    body.light .fixture-chip { background:#e0f2e8; border-color:#b0d8c0; color:#444; }
+    body.light .fixture-card { background:#fff; border-color:#dde8e2; }
+    body.light .fixture-card:hover { border-color:#00aa44; }
+    body.light .fixture-stage { color:#888; }
+    body.light .fixture-team-name { color:#222; }
+    body.light .fixture-sep { color:#555; }
+    body.light .fixture-score { color:#111; }
+    body.light .fixture-vs { color:#888; }
+    body.light .fixture-status.fc-post { color:#669977; background:transparent; }
+    body.light .fixture-status.fc-pre { color:#7799aa; background:transparent; }
+    body.light .fixture-scorer-item { color:#779988; }
+    body.light #live-section { background:linear-gradient(135deg,#fff0f0 0%,#fff8f8 100%); border-color:#f0c8c8; }
+    body.light .live-title { color:#cc2222; }
+    body.light .live-count { color:#888; }
+    body.light .live-card { background:#fff; border-color:#f0d0d0; }
+    body.light .live-card:hover { background:#fff5f5; border-color:#e00; }
+    body.light .live-name { color:#333; }
+    body.light .cat-pill { background:#fff; border-color:#ddd; color:#555; }
+    body.light .cat-pill:hover { border-color:#aaa; color:#222; background:#f5f5f5; }
+    body.light .cat-pill.active { background:#e00; border-color:#e00; color:#fff; box-shadow:0 2px 10px rgba(220,0,0,.35); }
+    body.light .grid-search { background:#fff; border-color:#ddd; color:#222; }
+    body.light .grid-search::placeholder { color:#aaa; }
+    body.light .grid-card { background:#fff; border-color:#e8e8e8; }
+    body.light .grid-card:hover { background:#fafafa; border-color:#e00; }
+    body.light .grid-name { color:#333; }
+    body.light .grid-logo-img { background:#eee; }
+    body.light .grid-count { color:#888; }
+    body.light .no-results { color:#888; }
+    body.light .filter-select { background:#fff; border-color:#ddd; color:#333; }
+    body.light .grid-header h2 { color:#888; }
+    body.light .g-modal { background:#fff; border-color:#ddd; }
+    body.light .g-modal p { color:#666; }
+    body.light .g-signup { background:#f0f0f0; color:#333; border-color:#ccc !important; }
+    body.light .g-signup:hover { background:#e8e8e8; }
   </style>
 </head>
 <body>
+<script>(function(){var t=localStorage.getItem('miz_theme');if(t===null)t='light';if(t==='light')document.body.classList.add('light');})();</script>
   <header>
     <h1 id="miz-logo" style="cursor:pointer;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:8px">${LOGO_FULL_HTML}</h1>
-    <div id="auth-area"></div>
+    <div id="header-right">
+      <button id="theme-btn" title="Toggle theme"></button>
+      <div id="auth-area"></div>
+    </div>
   </header>
   <div id="fixture-section" style="display:none">
     <div class="fixture-header" id="fixture-toggle-btn">
@@ -3460,6 +3526,27 @@ app.get('/', (req, res) => {
         if (_guestUsed >= GUEST_LIMIT) { clearInterval(_guestTimer); showGuestModal(); }
       }, 1000);
     }
+    function applyTheme(theme) {
+      if (theme === 'light') document.body.classList.add('light');
+      else document.body.classList.remove('light');
+      localStorage.setItem('miz_theme', theme);
+      const btn = document.getElementById('theme-btn');
+      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+    async function saveTheme(theme) {
+      const tok = localStorage.getItem('miz_token');
+      if (!tok) return;
+      try { await fetch('/api/user/theme', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) }); } catch(_) {}
+    }
+    function toggleTheme() {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      applyTheme(next); saveTheme(next);
+    }
+    (function initThemeBtn() {
+      const btn = document.getElementById('theme-btn');
+      if (btn) { btn.textContent = document.body.classList.contains('light') ? '🌙' : '☀️'; btn.addEventListener('click', toggleTheme); }
+    })();
+
     function renderAuthUI(user, role) {
       const area = document.getElementById('auth-area');
       if (!area) return;
@@ -3494,7 +3581,7 @@ app.get('/', (req, res) => {
         try {
           const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
           const d = await r.json();
-          if (d.user) { user = d.user; role = d.user.role; }
+          if (d.user) { user = d.user; role = d.user.role; if (d.user.theme) applyTheme(d.user.theme); }
           else { localStorage.removeItem('miz_token'); }
         } catch(_) {}
       }
@@ -5053,13 +5140,33 @@ app.get('/private-watch', (req, res) => {
         }
       }
     }
+    function applyTheme(theme) {
+      if (theme === 'light') document.body.classList.add('light');
+      else document.body.classList.remove('light');
+      localStorage.setItem('miz_theme', theme);
+      const btn = document.getElementById('theme-btn');
+      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+    async function saveTheme(theme) {
+      const tok = localStorage.getItem('miz_token');
+      if (!tok) return;
+      try { await fetch('/api/user/theme', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) }); } catch(_) {}
+    }
+    function toggleTheme() {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      applyTheme(next); saveTheme(next);
+    }
+    (function initThemeBtn() {
+      const btn = document.getElementById('theme-btn');
+      if (btn) { btn.textContent = document.body.classList.contains('light') ? '🌙' : '☀️'; btn.addEventListener('click', toggleTheme); }
+    })();
     async function initAuth() {
       const token = localStorage.getItem('miz_token');
       if (!token) { window.location.replace('/'); return; }
       try {
         const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
         const d = await r.json();
-        if (d.user) { renderAuthUI(d.user, d.user.role); }
+        if (d.user) { if (d.user.theme) applyTheme(d.user.theme); renderAuthUI(d.user, d.user.role); }
         else { localStorage.removeItem('miz_token'); window.location.replace('/'); return; }
       } catch(_) {}
     }
@@ -5483,13 +5590,71 @@ app.get('/watch', (req, res) => {
     .g-login:hover { background: #c00; }
     .g-signup { background: #222; color: #ccc; border: 1px solid #333 !important; }
     .g-signup:hover { background: #2a2a2a; }
+    /* ── Theme toggle ── */
+    #header-right { display:flex; align-items:center; gap:8px; }
+    #theme-btn { background:none; border:1px solid #444; border-radius:20px; font-size:14px; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; transition:border-color .2s; flex-shrink:0; padding:0; line-height:1; }
+    #theme-btn:hover { border-color:#e00; }
+    /* ── Light Theme ── */
+    body.light { background:#f2f4f6; color:#111; }
+    body.light #theme-btn { border-color:#ccc; }
+    body.light .open-btn { background:#fff; color:#555; border-color:#ddd; }
+    body.light .auth-btn { background:#fff; color:#333; border-color:#ddd; }
+    body.light .user-drop { background:#fff; border-color:#ddd; box-shadow:0 4px 20px rgba(0,0,0,.12); }
+    body.light .user-email-line { color:#888; border-color:#eee; }
+    body.light .user-item { color:#333; }
+    body.light .user-item:hover { background:#f5f5f5; color:#111; }
+    body.light #fixture-section { background:linear-gradient(135deg,#e8f5ef 0%,#f0f8f4 100%); border-color:#b8ddc8; }
+    body.light .fixture-nav-btn { background:#d8efe0; border-color:#a8ceb8; color:#007733; }
+    body.light .fixture-nav-btn:hover { background:#c8e4d4; border-color:#007733; }
+    body.light .fixture-nav-label { color:#555; }
+    body.light .fixture-chip { background:#e0f2e8; border-color:#b0d8c0; color:#444; }
+    body.light .fixture-card { background:#fff; border-color:#dde8e2; }
+    body.light .fixture-card:hover { border-color:#00aa44; }
+    body.light .fixture-stage { color:#888; }
+    body.light .fixture-team-name { color:#222; }
+    body.light .fixture-sep { color:#555; }
+    body.light .fixture-score { color:#111; }
+    body.light .fixture-vs { color:#888; }
+    body.light .fixture-status.fc-post { color:#669977; background:transparent; }
+    body.light .fixture-status.fc-pre { color:#7799aa; background:transparent; }
+    body.light .fixture-scorer-item { color:#779988; }
+    body.light #live-section { background:linear-gradient(135deg,#fff0f0 0%,#fff8f8 100%); border-color:#f0c8c8; }
+    body.light .live-title { color:#cc2222; }
+    body.light .live-count { color:#888; }
+    body.light .live-card { background:#fff; border-color:#f0d0d0; }
+    body.light .live-card:hover { background:#fff5f5; border-color:#e00; }
+    body.light .live-name { color:#333; }
+    body.light .cat-btn { background:#fff; border-color:#ddd; color:#555; }
+    body.light .cat-btn:hover { border-color:#aaa; color:#222; }
+    body.light .cat-btn.active { background:#e00; border-color:#e00; color:#fff; }
+    body.light .channel-item { background:#fff; border-color:#e8e8e8; }
+    body.light .channel-item:hover { background:#fafafa; border-color:#ccc; border-left-color:#c00; }
+    body.light .channel-item.active { background:#fff0f0; border-color:#e00; border-left-color:#e00; }
+    body.light .ch-name { color:#222; }
+    body.light .ch-number { color:#aaa; }
+    body.light .ch-badge.online { background:#e8f5e8; color:#337733; border-color:#b8d8b8; }
+    body.light .ch-badge.offline { background:#f5e8e8; color:#883333; border-color:#d8b8b8; }
+    body.light .ch-logo-thumb { background:#eee; }
+    body.light .recent-chip { background:#fff; border-color:#ddd; color:#666; }
+    body.light .recent-chip:hover { border-color:#e00; color:#e00; }
+    body.light .recent-label { color:#999; }
+    body.light .hd-badge { background:#e8f0fa; color:#4466aa; border-color:#c0d0e8; }
+    body.light .no-results { color:#888; }
+    body.light .g-modal { background:#fff; border-color:#ddd; }
+    body.light .g-modal p { color:#666; }
+    body.light .g-signup { background:#f0f0f0; color:#333; border-color:#ccc !important; }
+    body.light .g-signup:hover { background:#e8e8e8; }
   </style>
 </head>
 <body>
+<script>(function(){var t=localStorage.getItem('miz_theme');if(t===null)t='light';if(t==='light')document.body.classList.add('light');})();</script>
 
   <header>
     <h1><a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit">${LOGO_FULL_HTML}</a></h1>
-    <div id="auth-area"></div>
+    <div id="header-right">
+      <button id="theme-btn" title="Toggle theme"></button>
+      <div id="auth-area"></div>
+    </div>
   </header>
 
   <div class="player-wrapper" id="player-wrapper">
@@ -6406,6 +6571,27 @@ app.get('/watch', (req, res) => {
       if (activeId) fetch('/api/track/view', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ch: activeId }) }).catch(()=>{});
     });
 
+    function applyTheme(theme) {
+      if (theme === 'light') document.body.classList.add('light');
+      else document.body.classList.remove('light');
+      localStorage.setItem('miz_theme', theme);
+      const btn = document.getElementById('theme-btn');
+      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+    async function saveTheme(theme) {
+      const tok = localStorage.getItem('miz_token');
+      if (!tok) return;
+      try { await fetch('/api/user/theme', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) }); } catch(_) {}
+    }
+    function toggleTheme() {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      applyTheme(next); saveTheme(next);
+    }
+    (function initThemeBtn() {
+      const btn = document.getElementById('theme-btn');
+      if (btn) { btn.textContent = document.body.classList.contains('light') ? '🌙' : '☀️'; btn.addEventListener('click', toggleTheme); }
+    })();
+
     function renderAuthUI(user, role) {
       const area = document.getElementById('auth-area');
       if (!area) return;
@@ -6474,7 +6660,7 @@ app.get('/watch', (req, res) => {
         try {
           const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
           const d = await r.json();
-          if (d.user) { user = d.user; role = d.user.role; }
+          if (d.user) { user = d.user; role = d.user.role; if (d.user.theme) applyTheme(d.user.theme); }
           else { localStorage.removeItem('miz_token'); }
         } catch(_) {}
       }
