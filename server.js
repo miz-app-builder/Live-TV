@@ -3053,22 +3053,24 @@ app.get('/', (req, res) => {
       .fixture-title { font-size: 10px; letter-spacing: 1px; }
       .fixture-nav-btn { width: 20px; height: 20px; font-size: 11px; }
       .fixture-nav-label { font-size: 9px; min-width: 48px; }
-      .fixture-grid-outer { overflow-x: auto; overflow-y: visible; padding: 10px 0 4px; -webkit-overflow-scrolling: touch; }
+      .fixture-grid-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+      .fixture-grid-outer { overflow: visible; padding: 10px 0 4px; }
       .fixture-grid { display: inline-flex; flex-wrap: nowrap; width: auto; gap: 8px; }
-      .fixture-card { flex: 0 0 auto; min-width: 130px; max-width: 160px; padding: 10px 8px 8px; border-radius: 10px; gap: 4px; }
-      .fixture-team { width: 44px; flex-shrink: 0; }
+      .fixture-card { flex: 0 0 auto; min-width: 145px; max-width: 165px; padding: 10px 8px 8px; border-radius: 10px; gap: 4px; }
+      .fixture-team { width: 46px; flex-shrink: 0; }
       .fixture-team img { width: 28px; height: 28px; }
-      .fixture-team-name { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44px; }
+      .fixture-team-name { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46px; }
       .fixture-stage { font-size: 7px; letter-spacing: 0.5px; }
       .fixture-score { font-size: 16px; min-width: 10px; }
       .fixture-sep { font-size: 11px; }
       .fixture-vs { font-size: 9px; }
       .fixture-mid { flex: 0 0 auto; }
       .fixture-status { font-size: 8px; padding: 2px 4px; }
-      .fixture-scorer-item { font-size: 7px; }
-      .fixture-scorers { display: none; }
+      .fixture-scorer-item { font-size: 8px; white-space: normal; overflow: visible; text-overflow: unset; }
+      .fixture-scorer-col { max-width: 50%; }
+      .fixture-scorers { display: flex; gap: 2px; width: 100%; }
       .fixture-divider { height: 20px; }
-      .fc-open .fixture-grid-wrap { max-height: 200px; }
+      .fc-open .fixture-grid-wrap { max-height: 300px; }
     }
   </style>
 </head>
