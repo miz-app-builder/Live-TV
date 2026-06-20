@@ -2812,7 +2812,7 @@ app.get('/', (req, res) => {
     }
     .fixture-grid-inner::-webkit-scrollbar { display: none; }
     .fixture-grid-outer {
-      display: flex; justify-content: center;
+      display: flex; justify-content: flex-start;
       overflow-x: auto; padding: 14px 0 6px;
       scrollbar-width: none; -ms-overflow-style: none;
     }
@@ -3048,6 +3048,28 @@ app.get('/', (req, res) => {
     body.light .g-modal p { color:#666; }
     body.light .g-signup { background:#f0f0f0; color:#333; border-color:#ccc !important; }
     body.light .g-signup:hover { background:#e8e8e8; }
+    @media (max-width: 600px) {
+      #fixture-section { padding: 10px 10px; border-radius: 10px; }
+      .fixture-title { font-size: 10px; letter-spacing: 1px; }
+      .fixture-nav-btn { width: 20px; height: 20px; font-size: 11px; }
+      .fixture-nav-label { font-size: 9px; min-width: 48px; }
+      .fixture-grid-outer { overflow-x: auto; overflow-y: visible; padding: 10px 0 4px; -webkit-overflow-scrolling: touch; }
+      .fixture-grid { display: inline-flex; flex-wrap: nowrap; width: auto; gap: 8px; }
+      .fixture-card { flex: 0 0 auto; min-width: 130px; max-width: 160px; padding: 10px 8px 8px; border-radius: 10px; gap: 4px; }
+      .fixture-team { width: 44px; flex-shrink: 0; }
+      .fixture-team img { width: 28px; height: 28px; }
+      .fixture-team-name { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44px; }
+      .fixture-stage { font-size: 7px; letter-spacing: 0.5px; }
+      .fixture-score { font-size: 16px; min-width: 10px; }
+      .fixture-sep { font-size: 11px; }
+      .fixture-vs { font-size: 9px; }
+      .fixture-mid { flex: 0 0 auto; }
+      .fixture-status { font-size: 8px; padding: 2px 4px; }
+      .fixture-scorer-item { font-size: 7px; }
+      .fixture-scorers { display: none; }
+      .fixture-divider { height: 20px; }
+      .fc-open .fixture-grid-wrap { max-height: 200px; }
+    }
   </style>
 </head>
 <body>
