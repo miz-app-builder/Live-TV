@@ -1032,6 +1032,54 @@ app.post('/api/admin/config', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+/* ── Admin: Categories ─────────────────────────────────── */
+const DEFAULT_CATEGORIES = [
+  {name:'Bangla',emoji:'🇧🇩'},{name:'News',emoji:'📰'},
+  {name:'Movies',emoji:'🎬'},{name:'Music',emoji:'🎵'},
+  {name:'Kids',emoji:'👶'},{name:'Sports',emoji:'⚽'},
+  {name:'FIFA',emoji:'🏆'},{name:'International',emoji:'🌍'}
+];
+function getCategories() {
+  try { const r = appConfig['categories']; if (r) return JSON.parse(r); } catch(_) {}
+  return DEFAULT_CATEGORIES;
+}
+app.get('/api/categories', (req, res) => {
+  res.json({ categories: getCategories() });
+});
+app.get('/api/admin/categories', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  res.json({ categories: getCategories() });
+});
+app.post('/api/admin/categories/add', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const { name, emoji } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const cats = getCategories();
+  if (cats.find(c => c.name.toLowerCase() === name.toLowerCase()))
+    return res.status(400).json({ error: 'Category already exists' });
+  cats.push({ name: name.trim(), emoji: emoji || '📺' });
+  const val = JSON.stringify(cats);
+  appConfig['categories'] = val;
+  await supabaseAdmin.from('app_config').upsert({ key: 'categories', value: val, updated_at: new Date().toISOString() });
+  res.json({ success: true, categories: cats });
+});
+app.post('/api/admin/categories/delete', async (req, res) => {
+  const user = await verifyUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (await getUserRole(user.id) !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const cats = getCategories().filter(c => c.name !== name);
+  const val = JSON.stringify(cats);
+  appConfig['categories'] = val;
+  await supabaseAdmin.from('app_config').upsert({ key: 'categories', value: val, updated_at: new Date().toISOString() });
+  res.json({ success: true, categories: cats });
+});
+
 /* ── FFmpeg Transcoding ────────────────────────────────── */
 const transcodeSessions = new Map(); // sessionId → { proc, dir, timer }
 
@@ -1680,6 +1728,7 @@ app.get('/admin', async (req, res) => {
     <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
     <button class="tab-btn" data-tab="users">👥 Users</button>
     <button class="tab-btn" data-tab="channels">📺 Channels</button>
+    <button class="tab-btn" data-tab="category">🏷️ Category</button>
     <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
     <button class="tab-btn" data-tab="private">🔒 Private</button>
   </div>
@@ -1708,14 +1757,6 @@ app.get('/admin', async (req, res) => {
       <span class="bulk-label">⚡ Bulk:</span>
       <select class="cat-select" id="bulk-cat">
         <option value="All">🔍 All Categories</option>
-        <option value="Bangla">🇧🇩 Bangla</option>
-        <option value="News">📰 News</option>
-        <option value="Movies">🎬 Movies</option>
-        <option value="Music">🎵 Music</option>
-        <option value="Kids">👶 Kids</option>
-        <option value="Sports">⚽ Sports</option>
-        <option value="FIFA">🏆 FIFA</option>
-        <option value="International">🌍 International</option>
       </select>
       <button class="act-btn act-red" onclick="bulkAction('block')">🚫 Block All</button>
       <button class="act-btn act-green" onclick="bulkAction('unblock')">✅ Unblock All</button>
@@ -1723,6 +1764,26 @@ app.get('/admin', async (req, res) => {
     </div>
     <input class="search-bar" id="ch-search" placeholder="🔍 Channel খোঁজো (name/category)..." />
     <div class="ch-list" id="ch-list"><div style="color:#444;text-align:center;padding:20px">Loading...</div></div>
+  </div>
+  <div id="tab-category" hidden>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <div class="section-title" style="margin:0">🏷️ Category Management</div>
+      <button class="act-btn act-green" onclick="openCatAddForm()">➕ New Category</button>
+    </div>
+    <div id="cat-add-form" style="display:none;background:#0d0d0d;border:1px solid #1e3020;border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="url-input" id="new-cat-emoji" placeholder="Emoji e.g. 📺" style="width:72px;margin:0;text-align:center;font-size:18px" maxlength="4" />
+        <input class="url-input" id="new-cat-name" placeholder="Category Name e.g. Comedy" style="flex:1;margin:0;min-width:140px" />
+        <button class="act-btn act-green" onclick="addCategoryItem()">➕ Add</button>
+        <button class="act-btn" onclick="document.getElementById('cat-add-form').style.display='none'">Cancel</button>
+      </div>
+    </div>
+    <div id="cat-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+      <div style="color:#444;text-align:center;padding:20px;grid-column:1/-1">Loading...</div>
+    </div>
+    <div style="margin-top:14px;padding:10px 14px;background:#0a100d;border:1px solid #1a2a1a;border-radius:8px;font-size:11px;color:#446655">
+      ⚠️ Default category গুলো delete করলে ওই category-র channels <strong>International</strong>-এ চলে যাবে।
+    </div>
   </div>
   <div id="tab-settings" hidden>
     <div class="settings-row">
@@ -1772,13 +1833,6 @@ app.get('/admin', async (req, res) => {
     <input class="url-input" id="edit-url" placeholder="https://example.com/stream/index.m3u8" style="margin-bottom:10px" />
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category</label>
     <select class="cat-select" id="edit-cat" style="width:100%;margin-bottom:12px;padding:10px 14px">
-      <option value="Bangla">🇧🇩 Bangla</option>
-      <option value="News">📰 News</option>
-      <option value="Movies">🎬 Movies</option>
-      <option value="Music">🎵 Music</option>
-      <option value="Kids">👶 Kids</option>
-      <option value="Sports">⚽ Sports</option>
-      <option value="FIFA">🏆 FIFA</option>
       <option value="International">🌍 International</option>
     </select>
     <div class="url-btns">
@@ -1799,14 +1853,6 @@ app.get('/admin', async (req, res) => {
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Category</label>
     <select class="cat-select" id="add-cat" style="width:100%;margin-bottom:10px;padding:10px 14px">
       <option value="">Auto-detect</option>
-      <option value="Bangla">🇧🇩 Bangla</option>
-      <option value="News">📰 News</option>
-      <option value="Movies">🎬 Movies</option>
-      <option value="Music">🎵 Music</option>
-      <option value="Kids">👶 Kids</option>
-      <option value="Sports">⚽ Sports</option>
-      <option value="FIFA">🏆 FIFA</option>
-      <option value="International">🌍 International</option>
     </select>
     <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Country</label>
     <select class="cat-select" id="add-country" style="width:100%;margin-bottom:12px;padding:10px 14px">
@@ -2005,6 +2051,7 @@ app.get('/admin', async (req, res) => {
     if (t === 'dashboard') loadDashboard();
     if (t === 'users') loadUsers();
     if (t === 'channels') loadChTab();
+    if (t === 'category') loadCategoryTab();
     if (t === 'private') loadPrivateTab();
   }
 
@@ -2149,8 +2196,112 @@ app.get('/admin', async (req, res) => {
     }
   }
 
+  /* ─── Categories ─── */
+  let _adminCats = [
+    {name:'Bangla',emoji:'🇧🇩'},{name:'News',emoji:'📰'},
+    {name:'Movies',emoji:'🎬'},{name:'Music',emoji:'🎵'},
+    {name:'Kids',emoji:'👶'},{name:'Sports',emoji:'⚽'},
+    {name:'FIFA',emoji:'🏆'},{name:'International',emoji:'🌍'}
+  ];
+  const CAT_EMOJI = {};
+
+  function populateCatDropdowns() {
+    _adminCats.forEach(c => { CAT_EMOJI[c.name] = c.emoji; });
+    const bulkSel = document.getElementById('bulk-cat');
+    if (bulkSel) {
+      const cur = bulkSel.value;
+      bulkSel.innerHTML = '<option value="All">🔍 All Categories</option>' +
+        _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
+      if ([...bulkSel.options].some(o=>o.value===cur)) bulkSel.value = cur;
+    }
+    ['edit-cat','add-cat'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const cur = sel.value;
+      const prefix = id === 'add-cat' ? '<option value="">Auto-detect</option>' : '';
+      sel.innerHTML = prefix + _adminCats.map(c => '<option value="'+c.name+'">'+c.emoji+' '+c.name+'</option>').join('');
+      if (cur && [...sel.options].some(o=>o.value===cur)) sel.value = cur;
+    });
+  }
+
+  async function initCategories() {
+    try {
+      const r = await fetch('/api/admin/categories', { headers: { Authorization: 'Bearer ' + token } });
+      const d = await r.json();
+      if (d.categories) { _adminCats = d.categories; populateCatDropdowns(); }
+    } catch(_) {}
+  }
+
+  async function loadCategoryTab() {
+    const list = document.getElementById('cat-list');
+    list.innerHTML = '<div style="color:#444;text-align:center;padding:20px;grid-column:1/-1">Loading...</div>';
+    try {
+      const r = await fetch('/api/admin/categories', { headers: { Authorization: 'Bearer ' + token } });
+      const d = await r.json();
+      _adminCats = d.categories || _adminCats;
+      populateCatDropdowns();
+      renderCatList(_adminCats);
+    } catch(_) { list.innerHTML = '<div style="color:#f66;text-align:center;padding:20px;grid-column:1/-1">Load failed</div>'; }
+  }
+
+  function renderCatList(cats) {
+    const list = document.getElementById('cat-list');
+    if (!cats.length) { list.innerHTML = '<div style="color:#444;text-align:center;padding:20px;grid-column:1/-1">No categories yet</div>'; return; }
+    list.innerHTML = cats.map(c => \`
+      <div style="background:#0d1a10;border:1px solid #1a3022;border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:22px">\${c.emoji}</span>
+          <span style="font-size:14px;font-weight:700;color:#ddd">\${c.name}</span>
+        </div>
+        <button onclick="deleteCategoryItem('\${c.name.replace(/'/g,\"\\\\\\'\")}','this')" style="background:none;border:1px solid #3a1515;color:#cc4444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">🗑 Delete</button>
+      </div>
+    \`).join('');
+  }
+
+  function openCatAddForm() {
+    const f = document.getElementById('cat-add-form');
+    f.style.display = f.style.display === 'none' ? 'flex' : 'none';
+    document.getElementById('new-cat-name').focus();
+  }
+
+  async function addCategoryItem() {
+    const name = document.getElementById('new-cat-name').value.trim();
+    const emoji = document.getElementById('new-cat-emoji').value.trim() || '📺';
+    if (!name) { showMsg('Category name দাও!', false); return; }
+    const r = await fetch('/api/admin/categories/add', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body: JSON.stringify({ name, emoji })
+    });
+    const d = await r.json();
+    if (d.success) {
+      _adminCats = d.categories;
+      populateCatDropdowns();
+      renderCatList(_adminCats);
+      document.getElementById('new-cat-name').value = '';
+      document.getElementById('new-cat-emoji').value = '';
+      document.getElementById('cat-add-form').style.display = 'none';
+      showMsg(emoji+' '+name+' category added!', true);
+    } else showMsg(d.error || 'Error', false);
+  }
+
+  async function deleteCategoryItem(name) {
+    if (!confirm(name + ' category delete করবেন?')) return;
+    const r = await fetch('/api/admin/categories/delete', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body: JSON.stringify({ name })
+    });
+    const d = await r.json();
+    if (d.success) {
+      _adminCats = d.categories;
+      populateCatDropdowns();
+      renderCatList(_adminCats);
+      showMsg(name + ' deleted!', true);
+    } else showMsg(d.error || 'Error', false);
+  }
+
+  initCategories();
+
   /* ─── Channels ─── */
-  const CAT_EMOJI = { Bangla:'🇧🇩', News:'📰', Movies:'🎬', Music:'🎵', Kids:'👶', Sports:'⚽', International:'🌍' };
   let allChannels = [];
   async function loadChTab() {
     document.getElementById('ch-list').innerHTML = '<div style="color:#444;text-align:center;padding:20px">Loading...</div>';
@@ -5780,14 +5931,6 @@ app.get('/watch', (req, res) => {
     <div class="cat-filters" id="cat-filters">
       <button class="cat-btn active" data-cat="all">🔴 All</button>
       <button class="cat-btn" data-cat="favourites">❤️ Favs</button>
-      <button class="cat-btn" data-cat="bangla" id="cnt-bangla">🇧🇩 Bangla</button>
-      <button class="cat-btn" data-cat="news" id="cnt-news">📰 News</button>
-      <button class="cat-btn" data-cat="movies" id="cnt-movies">🎬 Movies</button>
-      <button class="cat-btn" data-cat="music" id="cnt-music">🎵 Music</button>
-      <button class="cat-btn" data-cat="kids" id="cnt-kids">👶 Kids</button>
-      <button class="cat-btn" data-cat="sports" id="cnt-sports">⚽ Sports</button>
-      <button class="cat-btn" data-cat="fifa" id="cnt-fifa">🏆 FIFA</button>
-      <button class="cat-btn" data-cat="international" id="cnt-intl">🌍 Intl</button>
     </div>
     <div id="resume-bar">
       <span id="resume-label">📺 Resume watching?</span>
@@ -5899,17 +6042,7 @@ app.get('/watch', (req, res) => {
 
     /* ── Category filter ─────────────────────── */
     function getCatForChannel(ch) {
-      const cat = (ch.category || '').toLowerCase();
-      const name = (ch.channel_name || '').toLowerCase();
-      if (cat === 'bangla' || /bangla|bengali|বাংলা/.test(name)) return 'bangla';
-      if (cat === 'news' || /news|সংবাদ|খবর/.test(name)) return 'news';
-      if (cat === 'movies' || /movie|cinema|film|বিনোদন/.test(name)) return 'movies';
-      if (cat === 'music' || /music|গান|সঙ্গীত/.test(name)) return 'music';
-      if (cat === 'kids' || /kids|children|cartoon|baby|শিশু/.test(name)) return 'kids';
-      if (cat === 'sports' || /sport|cricket|football|খেলা/.test(name)) return 'sports';
-      if (cat === 'fifa') return 'fifa';
-      if (cat === 'international') return 'international';
-      return 'other';
+      return (ch.category || 'international').toLowerCase();
     }
     function applyCategory() {
       const q = searchInput.value.toLowerCase().trim();
@@ -5923,21 +6056,52 @@ app.get('/watch', (req, res) => {
       chCount.textContent = list.length + ' channels';
       renderChannels(list);
     }
-    document.querySelectorAll('.cat-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeCategory = btn.dataset.cat;
-        applyCategory();
+    function attachCatBtnListeners() {
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeCategory = btn.dataset.cat;
+          applyCategory();
+        });
       });
-    });
+    }
+    attachCatBtnListeners();
+    let _catsLoaded = false;
+    async function initCatFilters() {
+      try {
+        const filtersEl = document.getElementById('cat-filters');
+        filtersEl.querySelectorAll('.cat-btn:not([data-cat="all"]):not([data-cat="favourites"])').forEach(b => b.remove());
+        const r = await fetch('/api/categories');
+        const d = await r.json();
+        const cats = d.categories || [];
+        cats.forEach(c => {
+          const btn = document.createElement('button');
+          btn.className = 'cat-btn';
+          btn.dataset.cat = c.name.toLowerCase();
+          btn.textContent = c.emoji + ' ' + c.name;
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeCategory = btn.dataset.cat;
+            applyCategory();
+          });
+          filtersEl.appendChild(btn);
+        });
+        _catsLoaded = true;
+        updateCategoryCounts();
+      } catch(_) {
+        if (!_catsLoaded) updateCategoryCounts();
+      }
+    }
     function updateCategoryCounts() {
-      const cats = { bangla:0, news:0, movies:0, music:0, kids:0, sports:0, fifa:0, international:0 };
-      allChannels.forEach(c => { const k = getCatForChannel(c); if (cats[k] !== undefined) cats[k]++; });
-      const idMap = { bangla:'cnt-bangla', news:'cnt-news', movies:'cnt-movies', music:'cnt-music', kids:'cnt-kids', sports:'cnt-sports', fifa:'cnt-fifa', international:'cnt-intl' };
-      Object.entries(idMap).forEach(([cat, elId]) => {
-        const el = document.getElementById(elId);
-        if (el && cats[cat]) { const base = el.textContent.split(' (')[0]; el.textContent = base + ' (' + cats[cat] + ')'; }
+      const counts = {};
+      allChannels.forEach(c => { const k = getCatForChannel(c); counts[k] = (counts[k]||0)+1; });
+      document.querySelectorAll('.cat-btn[data-cat]').forEach(btn => {
+        const cat = btn.dataset.cat;
+        if (cat === 'all' || cat === 'favourites') return;
+        const count = counts[cat] || 0;
+        if (count) { const base = btn.textContent.split(' (')[0]; btn.textContent = base + ' (' + count + ')'; }
       });
     }
 
@@ -6540,7 +6704,7 @@ app.get('/watch', (req, res) => {
         const data = await r.json();
         allChannels = data.channels;
         chCount.textContent = allChannels.length + ' channels';
-        updateCategoryCounts();
+        await initCatFilters();
         renderRecent();
         renderChannels(allChannels);
         const urlChId = parseInt(new URLSearchParams(window.location.search).get('ch'));
